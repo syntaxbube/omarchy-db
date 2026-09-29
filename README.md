@@ -1,43 +1,28 @@
 # SBB for Omarchy
 
-The next Swiss train in your Omarchy bar, a live departure board, and route
-search, all inside the Omarchy shell. Timetable data comes from
-[transport.opendata.ch](https://transport.opendata.ch) (free, no API key).
+Your next Swiss train, right in the Omarchy bar. Know whether the IR 70 is on
+time *before* you sprint to platform 8, not after.
 
-```
-󰔬  IR 70 → Luzern 16:42 · +4'
-```
+<p align="center">
+  <img src="screenshots/board.png" alt="The bar pill and the departures board" width="620">
+</p>
 
-## What it does
+## What you get
 
-- **Bar pill:** the next departure from your home station. It shows a countdown
-  when the train is on time, and the delay or "cancelled" when it is not. Late
-  and cancelled trains take the theme's alert colour.
-- **Departure board** (left click): time, line, destination, platform and
-  status for the next departures, and how far ahead the board reaches
-  ("departures · next 30 min"). A changed platform is marked with `!`.
-- **Departure details** (`Enter` on a train): expected and planned time,
-  platform (with the old one when it changed) and the stops with their times.
-- **Route search** (right click, or `/` on the board): one line, like the
-  Walker launcher: type `Luzern` (from your home station) or
-  `Bern > Thun`. Station autocomplete for the half you are typing, a
-  `now ▾` picker for later departures, and the next connections with duration,
-  changes, lines, platform and status.
-- **Connection details** (`Enter` on a connection): every ride with its line,
-  times and platforms, and the walks between them.
-- **Favourite routes:** `ctrl s` saves the route you searched. They show up in
-  the route search (`ctrl 1` to `ctrl 9`) and in settings, and on
-  `super+alt+1` to `super+alt+9` anywhere once you add the Hyprland bindings
-  below. None are set up out of the box.
-- **Settings view** (`,` on the board): home station, refresh interval, delay
-  alert, number of route results, show in bar, follow Omarchy theme, and your
-  favourites (`x` removes one). Changes are written to `shell.json` right away.
-- **Delay notifications:** a desktop notification when the train the bar is
-  following is late by your threshold or cancelled. Sent once per train, even
-  with several monitors.
-- **Colours:** by default the Tokyo Night palette from the Figma template (dark
-  pill with a rail red icon, blue line, green / amber / red status). Set
-  `palette` to `Theme` to follow the active Omarchy theme instead.
+- **A bar pill** with your next train: line, destination, time, and a countdown.
+  Late? It says `+4'`. Cancelled? It says so, sadly.
+- **A departures board** (click the pill). Hit `Enter` on a train to see its
+  stops and whether the platform changed on you.
+- **Route search** (right click). Type `Luzern`, or `Bern > Thun`, press
+  `Enter`, done. Pick "in 30 min" if you're running late on purpose.
+- **Favourite routes.** `ctrl s` saves one, `ctrl 1`–`9` brings it back.
+- **Delay alerts.** A notification when your train is late or cancelled, so
+  you can finish your coffee.
+- **Settings inside the popup** (`,` on the board). No config files needed.
+
+<p align="center">
+  <img src="screenshots/route-search.png" alt="Route search" width="560">
+</p>
 
 ## Install
 
@@ -45,76 +30,45 @@ search, all inside the Omarchy shell. Timetable data comes from
 omarchy plugin add https://github.com/vvkycodevv/omarchy-sbb.git --enable
 ```
 
-Or by hand while developing:
-
-```sh
-git clone https://github.com/vvkycodevv/omarchy-sbb.git ~/.config/omarchy/plugins/vvkycodevv.sbb
-omarchy-shell shell rescanPlugins
-omarchy plugin enable vvkycodevv.sbb
-```
-
-It starts in the right section of the bar. Move it with:
+It shows up on the right of the bar. Prefer the middle?
 
 ```sh
 omarchy bar move vvkycodevv.sbb --section center
 ```
 
+## Driving it
+
+| Where | Keys |
+| --- | --- |
+| Pill | left click: board · right click: route search · middle click: refresh |
+| Board | `↑↓` pick a train · `Enter` details · `/` search · `r` refresh · `,` settings · `Esc` close |
+| Route search | `Enter` search / open a connection · `Tab` swap from and to · `ctrl s` save favourite · `ctrl t` later departures · `ctrl 1`–`9` favourites · `Esc` back or close |
+| Settings | `↑↓` move · `Enter` edit or toggle · `x` delete a favourite · `Esc` back |
+
 ## Settings
 
-Edit them in Setup > Bar, or inline on the widget's entry in
-`~/.config/omarchy/shell.json`:
+Change them in the popup (`,` on the board), in Setup > Bar, or in the widget's
+entry in `~/.config/omarchy/shell.json`.
 
-| Key | Default | Meaning |
+| Key | Default | What it does |
 | --- | --- | --- |
-| `homeStation` | `Zürich HB` | Station for the board and the bar |
-| `barDestination` | empty | Bar follows only trains stopping here, e.g. `Luzern` |
-| `barStyle` | `Full` | `Full` or `Compact` (time and status only) |
-| `showInBar` | `true` | `false` leaves only the train icon in the bar |
-| `palette` | `Figma` | `Figma`: the Tokyo Night pill and panel from the design. `Theme`: follow the active Omarchy theme |
-| `departures` | `8` | Rows on the board (3 to 20) |
-| `connections` | `5` | Results per route search, favourites included (1 to 10) |
-| `refreshSeconds` | `60` | How often the board is fetched |
-| `delayAlertMinutes` | `3` | Notify at this delay; `0` turns alerts off |
-| `badgeStyle` | `Rail red` | `Rail red` or `Theme` |
+| `homeStation` | `Zürich HB` | Where the board and pill look for trains |
+| `barDestination` | empty | Only follow trains that stop here, e.g. `Luzern` |
+| `barStyle` | `Full` | `Compact` keeps just the time and status |
+| `showInBar` | `true` | `false` leaves only the little train icon |
+| `palette` | `Figma` | `Theme` follows your Omarchy theme instead of Tokyo Night |
+| `departures` | `8` | Trains on the board (3–20) |
+| `connections` | `5` | Results per route search, favourites too (1–10) |
+| `refreshSeconds` | `60` | How often to check the timetable |
+| `delayAlertMinutes` | `3` | Notify at this delay; `0` means "don't tell me" |
+| `badgeStyle` | `Rail red` | `Theme` for calmer line badges |
 | `favourites` | empty | `From > To`, separated by `;`, e.g. `Bern > Thun; Basel SBB > Olten` |
 
-## Keys
+## Keyboard shortcuts (optional)
 
-Board: `j`/`k` or arrows to move, `Enter` for details, `/` to search a route,
-`r` to refresh, `,` for settings, `Esc` to close.
-
-Departure details: arrows move to the previous/next train, `Enter` searches a
-route to its destination, `Esc` goes back.
-
-Route search: arrows pick a suggestion or a connection, `Enter` searches or
-opens the connection, `Tab` swaps from and to, `Ctrl+S` saves the route as a
-favourite, `Ctrl+T` steps through the departure time (now, in 15 min, …),
-`Ctrl+1` to `Ctrl+9` load a favourite. `Esc` goes back to the board when you
-came from it, and closes the popup otherwise (right click, `super+alt+N`).
-
-Settings: arrows to move, `Enter` to edit or toggle, `x` removes a favourite,
-`Esc` goes back.
-
-Mouse: left click toggles the board, middle click refreshes, right click opens
-route search.
-
-## Shell commands and Hyprland bindings
-
-```sh
-omarchy-shell shell toggle vvkycodevv.sbb '{}'        # board (toggle)
-omarchy-shell vvkycodevv.sbb toggleSearch              # route search (toggle)
-omarchy-shell vvkycodevv.sbb search                    # route search
-omarchy-shell vvkycodevv.sbb route "Bern" "Thun"
-omarchy-shell vvkycodevv.sbb favourite 1
-omarchy-shell vvkycodevv.sbb settings
-omarchy-shell vvkycodevv.sbb refresh
-```
-
-Optional shortcuts. Add them to `~/.config/hypr/bindings.lua` (check
-`omarchy menu keybindings --print` first that the keys are free on your
-setup): `super+alt+T` toggles the board,
-`super+alt+R` the route search, and `super+alt+1` to `9` open a favourite (a
-number without a favourite opens the search with your favourites listed).
+The plugin doesn't add any global shortcuts by itself. For some, paste this into
+`~/.config/hypr/bindings.lua`. First check the keys are free with
+`omarchy menu keybindings --print`.
 
 ```lua
 o.bind("SUPER + ALT + T", "SBB departures", "omarchy-shell shell toggle vvkycodevv.sbb '{}'")
@@ -124,24 +78,23 @@ for i = 1, 9 do
 end
 ```
 
-## Dependencies and privileges
-
-- `curl` for the timetable requests (to `transport.opendata.ch` only)
-- `notify-send` for delay alerts (libnotify, present on Omarchy)
-
-No daemon, no sudo. The only file written is your own `shell.json`, through
-`omarchy bar set`, when you change a setting or save a favourite. Like every
-Omarchy plugin it runs unsandboxed inside `omarchy-shell` with your user
-permissions.
-
-## Develop
+The same things work from any script:
 
 ```sh
-TZ=Europe/Zurich node tests/model.test.js
-omarchy plugin validate .
-qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml
-qs log -p "$OMARCHY_PATH/shell" --tail 100      # QML errors at runtime
+omarchy-shell vvkycodevv.sbb route "Bern" "Thun"
+omarchy-shell vvkycodevv.sbb favourite 1
+omarchy-shell vvkycodevv.sbb settings
+omarchy-shell vvkycodevv.sbb refresh
 ```
+
+## Good to know
+
+- Timetable data comes from [transport.opendata.ch](https://transport.opendata.ch):
+  free, no account, no API key.
+- It needs `curl` and `notify-send`, both already on Omarchy.
+- The only file it writes is your own `shell.json`, when you change a setting
+  or save a favourite. No daemon, no sudo.
+- Like every Omarchy plugin, it runs unsandboxed with your user permissions.
 
 ## Remove
 
@@ -149,4 +102,18 @@ qs log -p "$OMARCHY_PATH/shell" --tail 100      # QML errors at runtime
 omarchy plugin remove vvkycodevv.sbb
 ```
 
-Not affiliated with SBB CFF FFS.
+No hard feelings. The trains will keep running without you.
+
+## Hacking on it
+
+```sh
+git clone https://github.com/vvkycodevv/omarchy-sbb.git ~/.config/omarchy/plugins/vvkycodevv.sbb
+TZ=Europe/Zurich node tests/model.test.js
+omarchy plugin validate ~/.config/omarchy/plugins/vvkycodevv.sbb
+```
+
+After editing the QML, run `omarchy restart shell` if a change doesn't show up.
+
+---
+
+Not affiliated with SBB CFF FFS. Just a fan of trains that leave on time.
