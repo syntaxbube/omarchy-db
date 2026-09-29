@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "id": "vvkycodevv.sbb",
+  "name": "SBB",
+  "version": "1.0.0",
+  "author": "vvkycodevv",
+  "license": "MIT",
+  "description": "Next Swiss train in the Omarchy bar, a live departure board, and route search. Data from transport.opendata.ch.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "SBB",
+    "description": "Next departure from your home station, with a departures board and route search in the panel.",
+    "category": "Info",
+    "aliases": [
+      "sbb",
+      "train",
+      "cff",
+      "ffs",
+      "timetable"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "homeStation": "Zürich HB",
+      "barDestination": "",
+      "barStyle": "Full",
+      "showInBar": true,
+      "palette": "Figma",
+      "departures": 8,
+      "connections": 5,
+      "refreshSeconds": 60,
+      "delayAlertMinutes": 3,
+      "badgeStyle": "Rail red",
+      "favourites": ""
+    },
+    "schema": [
+      {
+        "key": "homeStation",
+        "type": "string",
+        "label": "Home station",
+        "defaultValue": "Zürich HB",
+        "description": "Station shown on the departure board and followed by the bar."
+      },
+      {
+        "key": "barDestination",
+        "type": "string",
+        "label": "Only trains towards",
+        "defaultValue": "",
+        "description": "Optional. The bar shows the next train that stops here, e.g. Luzern."
+      },
+      {
+        "key": "barStyle",
+        "type": "enum",
+        "label": "Bar label",
+        "options": [
+          "Full",
+          "Compact"
+        ],
+        "defaultValue": "Full",
+        "description": "Full: IR 70 → Luzern 16:42 · +4'. Compact: 16:42 · +4'."
+      },
+      {
+        "key": "showInBar",
+        "type": "boolean",
+        "label": "Show in bar",
+        "defaultValue": true,
+        "description": "Next departure from the home station in the bar. Off: only the train icon."
+      },
+      {
+        "key": "palette",
+        "type": "enum",
+        "label": "Colours",
+        "options": [
+          "Figma",
+          "Theme"
+        ],
+        "defaultValue": "Figma",
+        "description": "Figma: the Tokyo Night pill and panel from the design. Theme: follow the active Omarchy theme."
+      },
+      {
+        "key": "departures",
+        "type": "integer",
+        "label": "Departures on the board",
+        "min": 3,
+        "max": 20,
+        "step": 1,
+        "defaultValue": 8
+      },
+      {
+        "key": "connections",
+        "type": "integer",
+        "label": "Route search results",
+        "min": 1,
+        "max": 10,
+        "step": 1,
+        "defaultValue": 5,
+        "description": "Connections listed per route search, including favourite routes."
+      },
+      {
+        "key": "refreshSeconds",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 30,
+        "max": 600,
+        "step": 15,
+        "defaultValue": 60
+      },
+      {
+        "key": "delayAlertMinutes",
+        "type": "integer",
+        "label": "Notify when late by (minutes)",
+        "min": 0,
+        "max": 30,
+        "step": 1,
+        "defaultValue": 3,
+        "description": "0 turns notifications off. Cancellations are always reported when this is on."
+      },
+      {
+        "key": "badgeStyle",
+        "type": "enum",
+        "label": "Line badges",
+        "options": [
+          "Rail red",
+          "Theme"
+        ],
+        "defaultValue": "Rail red"
+      },
+      {
+        "key": "favourites",
+        "type": "string",
+        "label": "Favourite routes",
+        "defaultValue": "",
+        "description": "From > To, separated by semicolons, e.g. Bern > Thun. Numbered 1 to 9: ctrl 1-9 in the route search, super+alt+1-9 with the bindings from the README. Add the current route with ctrl s."
+      }
+    ]
+  }
+}
