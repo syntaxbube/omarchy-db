@@ -220,6 +220,10 @@ check("lua", lua, 'hl.unbind("SUPER + ALT + B")\nhl.unbind("SUPER + ALT + T")\n'
   + 'hl.bind("SUPER + ALT + T", hl.dsp.exec_cmd("omarchy-shell shell toggle vvkycodevv.sbb \'{}\'"), { description = "SBB: departures" })')
 check("lua escapes quotes", Model.shortcutsLua({ stale: [], bind: [{ keys: "SUPER + T", command: 'say "hi"', description: "SBB: x" }] }).indexOf('say \\"hi\\"') !== -1, true)
 
+check("unbind lua", Model.unbindLua([{ keys: "SUPER + ALT + T" }, { keys: "SUPER + CTRL + ALT + 1" }]),
+  'hl.unbind("SUPER + ALT + T")\nhl.unbind("SUPER + CTRL + ALT + 1")')
+check("nothing to unbind", Model.unbindLua([]), "")
+
 if (failures) {
   console.log(failures + " failed")
   process.exit(1)

@@ -144,6 +144,20 @@ Panel {
   onFavouriteShortcutChanged: syncShortcuts()
   Component.onCompleted: syncShortcuts()
 
+  // Uninstall cleanup. The shortcuts live in Hyprland, not in any file, so
+  // removing the plugin (or taking the widget off the bar) would leave them
+  // bound. A few seconds after this bar goes away, if no SBB panel answers
+  // any more, they are unbound. A shell restart or an unplugged monitor
+  // leaves another panel answering (or a fresh one re-registers), so those
+  // keep their shortcuts.
+  Component.onDestruction: {
+    var lua = Model.unbindLua(shortcutPlan.bind)
+    if (lua === "") return
+    Quickshell.execDetached(["sh", "-c",
+      'sleep 3; omarchy-shell "$1" alive >/dev/null 2>&1 || hyprctl eval "$2" >/dev/null 2>&1',
+      "sbb-cleanup", root.moduleName, lua])
+  }
+
   function syncShortcuts() {
     shortcutTimer.restart()
   }
@@ -820,6 +834,8 @@ Panel {
       else root.openRouteSearch("", "")
     }
     function settings(): void { root.openSettings() }
+    // Used by the uninstall cleanup to see whether the plugin is still here.
+    function alive(): string { return "yes" }
   }
 
   // ---- UI -------------------------------------------------------------------

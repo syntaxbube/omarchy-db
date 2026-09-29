@@ -672,6 +672,13 @@ function shortcutsLua(plan) {
   return out.join("\n")
 }
 
+// Removes shortcuts the plugin registered, for when it goes away.
+function unbindLua(bound) {
+  var out = []
+  for (var i = 0; i < (bound || []).length; i++) out.push("hl.unbind(" + luaString(bound[i].keys) + ")")
+  return out.join("\n")
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     foldKey: foldKey, stationboardUrl: stationboardUrl, connectionsUrl: connectionsUrl,
@@ -688,6 +695,7 @@ if (typeof module !== "undefined") {
     boardSpan: boardSpan, expectedTime: expectedTime, sectionLegs: sectionLegs,
     whenLabel: whenLabel, WHEN_OFFSETS: WHEN_OFFSETS,
     parseKeys: parseKeys, prettyKeys: prettyKeys, shortcutSpecs: shortcutSpecs,
-    planShortcuts: planShortcuts, shortcutsLua: shortcutsLua, parsePlainBinds: parsePlainBinds
+    planShortcuts: planShortcuts, shortcutsLua: shortcutsLua, parsePlainBinds: parsePlainBinds,
+    unbindLua: unbindLua
   }
 }
