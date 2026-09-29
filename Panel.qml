@@ -227,6 +227,8 @@ Panel {
   }
 
   function applyShortcuts(text) {
+    // An over-limit list is not trustworthy; leave everything as it is.
+    if (!Model.withinLimit(text, Model.LIMITS.binds)) return
     var binds = Model.parsePlainBinds(text)
     // No bindings at all means hyprctl failed; leave everything as it is.
     if (binds.length === 0) return
@@ -264,7 +266,7 @@ Panel {
   // Plain output on purpose, see Model.parsePlainBinds.
   Process {
     id: bindsProc
-    command: ["hyprctl", "binds"]
+    command: Model.cappedCommand(["hyprctl", "binds"], Model.LIMITS.binds)
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.applyShortcuts(text)
@@ -381,9 +383,9 @@ Panel {
     }
     var key = routeMode ? "route:" + routeKey : "station:" + homeStation
     boardProc.key = key
-    boardProc.command = ["curl", "-sS", "--max-time", "8", routeMode
+    boardProc.command = Model.curlCommand(routeMode
       ? Model.connectionsUrl(followedRoute.from, followedRoute.to, departureCount, 0, 16)
-      : Model.stationboardUrl(homeStation, departureCount)]
+      : Model.stationboardUrl(homeStation, departureCount), Model.LIMITS.timetable, 8)
     boardProc.running = true
   }
 
@@ -403,6 +405,10 @@ Panel {
     var text = String(raw || "").trim()
     if (text === "") {
       boardError = "timetable unreachable"
+      return
+    }
+    if (!Model.withinLimit(text, Model.LIMITS.timetable)) {
+      boardError = "response too large"
       return
     }
     var route = key.indexOf("route:") === 0
@@ -561,7 +567,7 @@ Panel {
     routeCursor = 0
     var when = whenOffset > 0 ? Math.round(Date.now() / 1000) + whenOffset * 60 : 0
     routeProc.running = false
-    routeProc.command = ["curl", "-sS", "--max-time", "10", Model.connectionsUrl(routeFrom, routeTo, connectionCount, when)]
+    routeProc.command = Model.curlCommand(Model.connectionsUrl(routeFrom, routeTo, connectionCount, when), Model.LIMITS.timetable, 10)
     routeProc.running = true
   }
 
@@ -664,6 +670,11 @@ Panel {
           root.routeError = "timetable unreachable"
           return
         }
+        if (!Model.withinLimit(raw, Model.LIMITS.timetable)) {
+          root.connections = []
+          root.routeError = "response too large"
+          return
+        }
         var result = Model.parseConnections(raw)
         root.connections = result.connections
         root.routeError = result.error
@@ -737,7 +748,7 @@ Panel {
     onTriggered: {
       var part = Model.segmentText(queryField.text, root.suggestSegment, root.homeStation)
       stationProc.running = false
-      stationProc.command = ["curl", "-sS", "--max-time", "5", Model.locationsUrl(part)]
+      stationProc.command = Model.curlCommand(Model.locationsUrl(part), Model.LIMITS.stations, 5)
       stationProc.running = true
     }
   }
@@ -748,6 +759,7 @@ Panel {
       waitForEnd: true
       onStreamFinished: {
         if (root.suggestSegment === "") return
+        if (!Model.withinLimit(text, Model.LIMITS.stations)) return
         var part = Model.segmentText(queryField.text, root.suggestSegment, root.homeStation)
         var names = Model.parseStations(text)
         // Nothing to suggest when the query already holds an exact match.

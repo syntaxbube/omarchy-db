@@ -54,6 +54,40 @@ function connectionsUrl(from, to, limit, when, max) {
   return url
 }
 
+// ---- Response limits -------------------------------------------------------
+// Every outside command runs behind a byte cap so a stalled or oversized
+// response can never grow the long-lived shell's memory: curl gives up past
+// the limit, and `head -c` stops reading one byte after it whatever the
+// producer does. That extra byte is how withinLimit spots an over-limit
+// response, which is then dropped before any JSON parsing. The biggest real
+// responses are about 300 KB (16 connections Kloten → Zermatt).
+var LIMITS = { timetable: 1048576, stations: 65536, binds: 524288 }
+
+function cappedCommand(argv, limit) {
+  return ["sh", "-c", 'limit="$1"; shift; "$@" | head -c "$limit"', "sbb-capped", String(limit + 1)].concat(argv)
+}
+
+function curlCommand(url, limit, seconds) {
+  return cappedCommand(["curl", "-sS", "--max-time", String(seconds || 8), "--max-filesize", String(limit), url], limit)
+}
+
+function utf8Length(text) {
+  var s = String(text === undefined || text === null ? "" : text)
+  var n = 0
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i)
+    if (c < 0x80) n += 1
+    else if (c < 0x800) n += 2
+    else if (c >= 0xd800 && c <= 0xdbff) { n += 4; i++ }
+    else n += 3
+  }
+  return n
+}
+
+function withinLimit(text, limit) {
+  return utf8Length(text) <= limit
+}
+
 function locationsUrl(query) {
   return API + "/locations?type=station&query=" + encodeURIComponent(trim(query))
 }
@@ -719,7 +753,8 @@ function unbindLua(bound) {
 
 if (typeof module !== "undefined") {
   module.exports = {
-    foldKey: foldKey, stationboardUrl: stationboardUrl, connectionsUrl: connectionsUrl,
+    foldKey: foldKey, stationboardUrl: stationboardUrl, LIMITS: LIMITS, cappedCommand: cappedCommand,
+    curlCommand: curlCommand, utf8Length: utf8Length, withinLimit: withinLimit, connectionsUrl: connectionsUrl,
     locationsUrl: locationsUrl, isoToSeconds: isoToSeconds, clock: clock,
     durationMinutes: durationMinutes, formatDuration: formatDuration, lineLabel: lineLabel,
     isLocalCategory: isLocalCategory, parseDepartures: parseDepartures, status: status,

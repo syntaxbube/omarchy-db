@@ -239,6 +239,21 @@ check("unbind lua", Model.unbindLua([{ keys: "SUPER + ALT + T" }, { keys: "SUPER
   'hl.unbind("SUPER + ALT + T")\nhl.unbind("SUPER + CTRL + ALT + 1")')
 check("nothing to unbind", Model.unbindLua([]), "")
 
+// ---- Response limits -------------------------------------------------------------
+
+check("utf8 length", [Model.utf8Length("abc"), Model.utf8Length("Zürich"), Model.utf8Length("→"), Model.utf8Length("🚆")], [3, 7, 3, 4])
+check("within limit", [Model.withinLimit("12345", 5), Model.withinLimit("123456", 5), Model.withinLimit("ü", 1)], [true, false, false])
+check("capped command reads one byte past the limit", Model.cappedCommand(["hyprctl", "binds"], 100).slice(3), ["sbb-capped", "101", "hyprctl", "binds"])
+check("curl command caps the download", Model.curlCommand("https://x", 2048, 5).slice(5),
+  ["curl", "-sS", "--max-time", "5", "--max-filesize", "2048", "https://x"])
+{
+  const { execFileSync } = require("child_process")
+  const run = argv => execFileSync(argv[0], argv.slice(1)).toString()
+  check("cap cuts the output", run(Model.cappedCommand(["sh", "-c", "yes x | head -c 100000"], 10)).length, 11)
+  check("cap keeps short output", run(Model.cappedCommand(["printf", "%s", "hello"], 10)), "hello")
+  check("cap passes arguments untouched", run(Model.cappedCommand(["printf", "%s|%s", "a b", "$HOME"], 50)), "a b|$HOME")
+}
+
 if (failures) {
   console.log(failures + " failed")
   process.exit(1)

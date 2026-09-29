@@ -108,6 +108,9 @@ omarchy-shell vvkycodevv.sbb refresh
 - Timetable data comes from [transport.opendata.ch](https://transport.opendata.ch):
   free, no account, no API key.
 - It needs `curl` and `notify-send`, both already on Omarchy.
+- Every response is size-capped (1 MB for timetables, 64 KB for station
+  search, 512 KB for the Hyprland shortcut list) and dropped unread if it
+  goes over, so a misbehaving server can't balloon the shell.
 - The only file it writes is your own `shell.json`, when you change a setting
   or save a favourite. Shortcuts go straight to Hyprland (`hyprctl eval`), not
   into your config files. No daemon, no sudo.
