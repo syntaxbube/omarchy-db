@@ -128,7 +128,10 @@ BarWidget {
       visible: root.pillMode
       anchors.centerIn: parent
       width: pillRow.implicitWidth + Style.space(8) + Style.space(root.showDeparture ? 10 : 8)
-      height: Math.max(Style.space(18), Math.min(Style.space(26), root.barSize - Style.space(8)))
+      // Figma: 26 tall with a 16px icon, 5px clear above and below. Omarchy's
+      // default bar is 26 itself, so the pill leaves 2px to the bar edges and
+      // the icon shrinks with it to keep the breathing room.
+      height: Math.max(Style.space(18), Math.min(Style.space(26), root.barSize - Style.space(4)))
       radius: Style.space(6)
       color: Palette.surface
       border.width: 1
@@ -143,10 +146,11 @@ BarWidget {
 
         // Icon / Train: rail red tile with a white train.
         Rectangle {
+          id: trainTile
           anchors.verticalCenter: parent.verticalCenter
-          width: Style.space(16)
+          width: Math.max(Style.space(12), Math.min(Style.space(16), pill.height - Style.space(8)))
           height: width
-          radius: Style.space(4)
+          radius: Math.round(width / 4)
           color: Palette.rail
 
           Text {
@@ -155,7 +159,8 @@ BarWidget {
             textFormat: Text.PlainText
             color: "#ffffff"
             font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.bodySmall
+            // Figma's train fills about two thirds of the tile.
+            font.pixelSize: Math.round(trainTile.width * 0.68)
           }
         }
 
@@ -210,7 +215,7 @@ BarWidget {
         Row {
           visible: root.showDeparture && root.pillStatusText !== ""
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(6)
+          spacing: Style.space(8)
 
           Rectangle {
             anchors.verticalCenter: parent.verticalCenter
