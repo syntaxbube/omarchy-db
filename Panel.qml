@@ -140,7 +140,7 @@ Panel {
   property string routeNotice: ""
   // Esc in the route search goes back to the board when it was opened from
   // there, and closes the popup when it was opened on its own (right click,
-  // super+alt+N, IPC).
+  // super+ctrl+alt+N, IPC).
   property bool routeFromBoard: false
 
   property string suggestSegment: ""     // "from" | "to" | ""
@@ -371,7 +371,7 @@ Panel {
     searchRoute()
   }
 
-  // super+alt+N. A number without a favourite opens the search with the
+  // super+ctrl+alt+N. A number without a favourite opens the search with the
   // favourites list and says so, instead of showing the last search.
   function openFavourite(number) {
     if (number >= 1 && number <= favourites.length) {
@@ -422,7 +422,7 @@ Panel {
     }
     saveSetting("favourites", Model.serializeFavourites(result.list))
     var n = result.list.length
-    showNotice("saved as favourite " + n + (n <= 9 ? " · super+alt+" + n : ""))
+    showNotice("saved as favourite " + n + (n <= 9 ? " · super+ctrl+alt+" + n : ""))
   }
 
   function showNotice(text) {
@@ -2286,7 +2286,7 @@ Panel {
               Text {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: favRow.index < 9
-                text: "super+alt+" + (favRow.index + 1)
+                text: "super+ctrl+alt+" + (favRow.index + 1)
                 textFormat: Text.PlainText
                 color: root.platformColor
                 font.family: root.fontFamily
@@ -2335,7 +2335,7 @@ Panel {
         bottomRightRadius: bottomLeftRadius
         color: root.deep
 
-        // "saved as favourite 3 · super+alt+3" and friends, in place of
+        // "saved as favourite 3 · super+ctrl+alt+3" and friends, in place of
         // the hints for a few seconds.
         Text {
           anchors.left: parent.left

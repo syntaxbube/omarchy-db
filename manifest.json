@@ -135,7 +135,7 @@
         "type": "string",
         "label": "Favourite routes",
         "defaultValue": "",
-        "description": "From > To, separated by semicolons, e.g. Bern > Thun. Numbered 1 to 9: ctrl 1-9 in the route search, super+alt+1-9 with the bindings from the README. Add the current route with ctrl s."
+        "description": "From > To, separated by semicolons, e.g. Bern > Thun. Numbered 1 to 9: ctrl 1-9 in the route search, super+ctrl+alt+1-9 with the bindings from the README. Add the current route with ctrl s."
       }
     ]
   }

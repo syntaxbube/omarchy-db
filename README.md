@@ -68,13 +68,14 @@ entry in `~/.config/omarchy/shell.json`.
 
 The plugin doesn't add any global shortcuts by itself. For some, paste this into
 `~/.config/hypr/bindings.lua`. First check the keys are free with
-`omarchy menu keybindings --print`.
+`omarchy menu keybindings --print`. (Favourites live on `super+ctrl+alt`
+because Omarchy already uses `super+alt+1`–`5` for window groups.)
 
 ```lua
 o.bind("SUPER + ALT + T", "SBB departures", "omarchy-shell shell toggle vvkycodevv.sbb '{}'")
 o.bind("SUPER + ALT + R", "SBB route search", "omarchy-shell vvkycodevv.sbb toggleSearch")
 for i = 1, 9 do
-  o.bind("SUPER + ALT + " .. i, "SBB favourite route " .. i, "omarchy-shell vvkycodevv.sbb favourite " .. i)
+  o.bind("SUPER + CTRL + ALT + " .. i, "SBB favourite route " .. i, "omarchy-shell vvkycodevv.sbb favourite " .. i)
 end
 ```
 
