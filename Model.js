@@ -40,10 +40,12 @@ function stationboardUrl(station, limit) {
 }
 
 // `when` is optional Unix seconds; without it the API searches from now.
-function connectionsUrl(from, to, limit, when) {
+// `max` caps the limit: 10 for route searches, 16 (the API's own cap) for
+// the board when it follows a route.
+function connectionsUrl(from, to, limit, when, max) {
   var url = API + "/connections?from=" + encodeURIComponent(trim(from))
     + "&to=" + encodeURIComponent(trim(to))
-    + "&limit=" + Math.max(1, Math.min(10, parseInt(limit, 10) || 5))
+    + "&limit=" + Math.max(1, Math.min(max || 10, parseInt(limit, 10) || 5))
   if (when) {
     var d = new Date(when * 1000)
     url += "&date=" + d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate())
@@ -396,6 +398,42 @@ function parseConnections(raw) {
   return { ok: true, connections: out, error: out.length ? "" : "No connections found" }
 }
 
+// The bar and board can follow a route instead of the home station. Each
+// connection becomes a departure-shaped entry, so the pill, the board and the
+// delay alerts treat both the same. The id leaves out the list position,
+// which shifts as trains leave, so alerts and the followed row stay put.
+// `destination` names the stop when the API leaves the arrival unnamed.
+function connectionDepartures(connections, destination) {
+  var out = []
+  for (var i = 0; i < (connections || []).length; i++) {
+    var c = connections[i]
+    if (!c || isNaN(c.depTs)) continue
+    var ride = null
+    for (var k = 0; k < c.legs.length && !ride; k++) if (c.legs[k].kind === "ride") ride = c.legs[k]
+    var first = c.lines[0] || { label: "", local: false }
+    var line = ride ? ride.line : first.label
+    out.push({
+      id: "route:" + c.depTs + ":" + line,
+      ts: c.depTs,
+      time: c.depTime,
+      line: line,
+      local: ride ? ride.local : first.local,
+      to: c.toName || trim(destination),
+      via: [],
+      stops: [],
+      platform: c.platform,
+      plannedPlatform: c.platform,
+      platformChanged: false,
+      delay: c.delay,
+      cancelled: c.cancelled,
+      arrTime: c.arrTime,
+      changes: c.changes,
+      connection: c
+    })
+  }
+  return out
+}
+
 // ---- Stations & favourites -------------------------------------------------
 
 function parseStations(raw) {
@@ -692,7 +730,7 @@ if (typeof module !== "undefined") {
     addFavourite: addFavourite, removeFavourite: removeFavourite,
     parseRouteQuery: parseRouteQuery, formatRoute: formatRoute, activeSegment: activeSegment,
     segmentText: segmentText, replaceSegment: replaceSegment, swapRouteQuery: swapRouteQuery,
-    boardSpan: boardSpan, expectedTime: expectedTime, sectionLegs: sectionLegs,
+    boardSpan: boardSpan, connectionDepartures: connectionDepartures, expectedTime: expectedTime, sectionLegs: sectionLegs,
     whenLabel: whenLabel, WHEN_OFFSETS: WHEN_OFFSETS,
     parseKeys: parseKeys, prettyKeys: prettyKeys, shortcutSpecs: shortcutSpecs,
     planShortcuts: planShortcuts, shortcutsLua: shortcutsLua, parsePlainBinds: parsePlainBinds,

@@ -11,6 +11,9 @@ time *before* you sprint to platform 8, not after.
 
 - **A bar pill** with your next train: line, destination, time, and a countdown.
   Late? It says `+4'`. Cancelled? It says so, sadly.
+- **Follow your commute.** Don't care about every train leaving your station?
+  Set a route like `Bern > Thun` and the pill and board show only the next
+  connections for it, changes included.
 - **A departures board** (click the pill). Hit `Enter` on a train to see its
   stops and whether the platform changed on you.
 - **Route search** (right click). Type `Luzern`, or `Bern > Thun`, press
@@ -53,7 +56,9 @@ entry in `~/.config/omarchy/shell.json`.
 | Key | Default | What it does |
 | --- | --- | --- |
 | `homeStation` | `Zürich HB` | Where the board and pill look for trains |
-| `barDestination` | empty | Only follow trains that stop here, e.g. `Luzern` |
+| `barMode` | `Home station` | `Route` follows `barRoute` instead of the whole station |
+| `barRoute` | empty | `From > To`, e.g. `Bern > Thun`; just `Thun` starts at `homeStation` |
+| `barDestination` | empty | Home station mode: only follow trains that stop here, e.g. `Luzern` |
 | `barStyle` | `Full` | `Compact` keeps just the time and status |
 | `showInBar` | `true` | `false` leaves only the little train icon |
 | `palette` | `Figma` | `Theme` follows your Omarchy theme instead of Tokyo Night |

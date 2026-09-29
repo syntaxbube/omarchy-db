@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "SBB",
-    "description": "Next departure from your home station, with a departures board and route search in the panel.",
+    "description": "Next departure from your home station or along a chosen route, with a departures board and route search in the panel.",
     "category": "Info",
     "aliases": [
       "sbb",
@@ -27,6 +27,8 @@
     "defaultSection": "right",
     "defaults": {
       "homeStation": "Zürich HB",
+      "barMode": "Home station",
+      "barRoute": "",
       "barDestination": "",
       "barStyle": "Full",
       "showInBar": true,
@@ -48,14 +50,32 @@
         "type": "string",
         "label": "Home station",
         "defaultValue": "Zürich HB",
-        "description": "Station shown on the departure board and followed by the bar."
+        "description": "Station shown on the departure board and followed by the bar. Also the start of a route that names only a destination."
+      },
+      {
+        "key": "barMode",
+        "type": "enum",
+        "label": "Bar follows",
+        "options": [
+          "Home station",
+          "Route"
+        ],
+        "defaultValue": "Home station",
+        "description": "Home station: every train leaving it. Route: the next connections from start to destination (set in barRoute), on the bar and the board."
+      },
+      {
+        "key": "barRoute",
+        "type": "string",
+        "label": "Followed route",
+        "defaultValue": "",
+        "description": "From > To, e.g. Bern > Thun. Just Thun starts at the home station. Used when the bar follows a route."
       },
       {
         "key": "barDestination",
         "type": "string",
         "label": "Only trains towards",
         "defaultValue": "",
-        "description": "Optional. The bar shows the next train that stops here, e.g. Luzern."
+        "description": "Optional. The bar shows the next train from the home station that stops here, e.g. Luzern. Not used when following a route."
       },
       {
         "key": "barStyle",
@@ -73,7 +93,7 @@
         "type": "boolean",
         "label": "Show in bar",
         "defaultValue": true,
-        "description": "Next departure from the home station in the bar. Off: only the train icon."
+        "description": "Next departure (home station or followed route) in the bar. Off: only the train icon."
       },
       {
         "key": "palette",

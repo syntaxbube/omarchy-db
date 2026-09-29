@@ -144,6 +144,21 @@ check("connection station names", [legConns.fromName, legConns.toName], ["Bern, 
 check("url with time", Model.connectionsUrl("Bern", "Thun", 5, at(17, 30)),
   "https://transport.opendata.ch/v1/connections?from=Bern&to=Thun&limit=5&date=2026-09-29&time=17:30")
 check("result limit capped at 10", /limit=10$/.test(Model.connectionsUrl("A", "B", 16)), true)
+check("board limit can reach 16", /limit=16$/.test(Model.connectionsUrl("A", "B", 20, 0, 16)), true)
+
+// ---- Following a route -----------------------------------------------------------
+
+const routeDeps = Model.connectionDepartures([legConns, conns.connections[0], conns.connections[2]], "Luzern")
+check("route entries", routeDeps.length, 3)
+check("route entry from the first ride", [routeDeps[0].line, routeDeps[0].local, routeDeps[0].to, routeDeps[0].platform],
+  ["B 733", true, "Thun", ""])
+check("route entry times", [routeDeps[1].time, routeDeps[1].arrTime, routeDeps[1].changes, routeDeps[1].delay], ["16:42", "17:31", "direct", 4])
+check("route entry without sections uses products", routeDeps[2].line, "IC 5")
+check("route id ignores list position", Model.connectionDepartures([conns.connections[0]])[0].id, routeDeps[1].id)
+check("route entry keeps the connection", routeDeps[0].connection, legConns)
+check("route entry names the arrival", [routeDeps[0].to, routeDeps[1].to], ["Thun", "Luzern"])
+check("route entry works with the pill", Model.barText(routeDeps[1], false, at(16, 30)), "IR 70 → Luzern 16:42 · +4'")
+check("route entry works with alerts", Model.alertFor(routeDeps[1], 3, {}).key, routeDeps[1].id + ":4")
 check("when labels", Model.WHEN_OFFSETS.map(Model.whenLabel), ["now", "in 15 min", "in 30 min", "in 1 h", "in 2 h"])
 
 // ---- Route query ---------------------------------------------------------------

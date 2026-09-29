@@ -33,6 +33,14 @@ Panel {
   readonly property string barDestination: String(setting("barDestination", "")).trim()
   readonly property bool compactBar: setting("barStyle", "Full") === "Compact"
   readonly property bool showInBar: String(setting("showInBar", true)) !== "false"
+  // "Route": the bar and the board follow the next connections of barRoute
+  // ("Bern > Thun", or just "Thun" to start at the home station) instead of
+  // every departure from the home station.
+  readonly property bool followRoute: setting("barMode", "Home station") === "Route"
+  readonly property string barRoute: String(setting("barRoute", "")).trim()
+  readonly property var followedRoute: Model.parseRouteQuery(barRoute, homeStation)
+  readonly property bool routeMode: followRoute && followedRoute.to !== ""
+  readonly property string routeKey: routeMode ? followedRoute.from + ">" + followedRoute.to : ""
   // Global Hyprland shortcuts the plugin registers itself (see Shortcuts).
   readonly property bool shortcutsEnabled: String(setting("shortcuts", true)) !== "false"
   readonly property string boardShortcut: String(setting("boardShortcut", "SUPER + ALT + T"))
@@ -58,6 +66,20 @@ Panel {
     var cmd = ["omarchy-bar", "set", root.moduleName, key, json ? JSON.stringify(value) : value]
     if (json) cmd.push("--json")
     Quickshell.execDetached(cmd)
+  }
+
+  // Several keys at once, one after the other: parallel writes to shell.json
+  // could lose one of them.
+  function saveSettings(pairs) {
+    var script = ""
+    var args = ["sh", "-c", "", "sbb-settings", root.moduleName]
+    for (var i = 0; i < pairs.length; i++) {
+      var json = typeof pairs[i][1] !== "string"
+      args.push(pairs[i][0], json ? JSON.stringify(pairs[i][1]) : pairs[i][1])
+      script += (i ? " && " : "") + 'omarchy-bar set "$1" "$' + (2 * i + 2) + '" "$' + (2 * i + 3) + '"' + (json ? " --json" : "")
+    }
+    args[2] = script
+    Quickshell.execDetached(args)
   }
 
   // ---- Colours ----------------------------------------------------------------
@@ -110,21 +132,39 @@ Panel {
   property real nowSec: Date.now() / 1000
   property bool refetchQueued: false
 
-  readonly property var barDeparture: Model.nextDeparture(departures, barDestination, nowSec)
+  // What the board shows, captured when it was fetched, so a mode switch
+  // never mixes station departures with route connections.
+  property string boardKey: ""
+  property string routeFromName: ""
+  property string routeToName: ""
+  // A connection opened from the board (route mode) rather than the search.
+  property bool connectionFromBoard: false
+
+  readonly property var barDeparture: Model.nextDeparture(departures, routeMode ? "" : barDestination, nowSec)
   readonly property bool barAlert: barDeparture !== null && Model.status(barDeparture) !== "ontime"
   readonly property string label: {
     if (barDeparture) return Model.barText(barDeparture, compactBar, nowSec)
     if (boardError !== "" && departures.length === 0) return "offline"
     if (!loaded) return "…"
+    if (routeMode) return "no trains to " + followedRoute.to
     return barDestination ? "no trains to " + barDestination : "no departures"
   }
+  readonly property string boardTitle: routeMode
+    ? Model.formatRoute(routeFromName || followedRoute.from, routeToName || followedRoute.to)
+    : (stationName || homeStation)
   readonly property string tooltip: {
     if (boardError !== "") return "SBB: " + boardError
-    return (stationName || homeStation) + (barDeparture && barDeparture.platform ? " · platform " + barDeparture.platform : "")
+    var where = barDeparture && barDeparture.platform ? " · platform " + barDeparture.platform : ""
+    if (routeMode && barDeparture) where += " · arrives " + barDeparture.arrTime + " · " + barDeparture.changes
+    return boardTitle + where
   }
 
   onHomeStationChanged: queueRefresh()
   onDepartureCountChanged: queueRefresh()
+  onRouteKeyChanged: {
+    if (connectionFromBoard && view === "connection") showBoard()
+    queueRefresh()
+  }
   onConnectionCountChanged: if ((view === "route" || view === "connection") && routeTo !== "") searchRoute()
 
   // ---- Shortcuts ----------------------------------------------------------------
@@ -270,15 +310,20 @@ Panel {
   property var suggestions: []
   property int suggestionIndex: -1
 
-  readonly property var detailConnection: view === "connection" ? (connections[routeCursor] || null) : null
+  readonly property var detailConnection: {
+    if (view !== "connection") return null
+    if (!connectionFromBoard) return connections[routeCursor] || null
+    var entry = departures[boardCursor]
+    return entry && entry.connection ? entry.connection : null
+  }
   readonly property int whenOffset: Model.WHEN_OFFSETS[whenIndex] || 0
 
   // Fixed rows of the settings view, favourites follow.
-  readonly property int settingsFixedRows: 7
+  readonly property int settingsFixedRows: 9
   readonly property int settingsRows: settingsFixedRows + favourites.length
 
   readonly property bool typing: queryField.activeFocus
-    || homeField.input.activeFocus || refreshField.input.activeFocus || delayField.input.activeFocus
+    || homeField.input.activeFocus || routeField.input.activeFocus || refreshField.input.activeFocus || delayField.input.activeFocus
     || resultsField.input.activeFocus
 
   // Footer key hints for the current view, as [key, action] pairs.
@@ -297,6 +342,7 @@ Panel {
   function open() {
     if (view !== "board") {
       view = "board"
+      connectionFromBoard = false
       resultsFocused = false
       whenMenuOpen = false
       clearSuggestions()
@@ -333,7 +379,11 @@ Panel {
       refetchQueued = true
       return
     }
-    boardProc.command = ["curl", "-sS", "--max-time", "8", Model.stationboardUrl(homeStation, departureCount)]
+    var key = routeMode ? "route:" + routeKey : "station:" + homeStation
+    boardProc.key = key
+    boardProc.command = ["curl", "-sS", "--max-time", "8", routeMode
+      ? Model.connectionsUrl(followedRoute.from, followedRoute.to, departureCount, 0, 16)
+      : Model.stationboardUrl(homeStation, departureCount)]
     boardProc.running = true
   }
 
@@ -341,20 +391,37 @@ Panel {
     Qt.callLater(refresh)
   }
 
-  function applyBoard(raw) {
+  function applyBoard(raw, key) {
+    // Switching between the station and a route clears the old list right
+    // away instead of showing it under the new title.
+    if (key !== boardKey) {
+      boardKey = key
+      departures = []
+      loaded = false
+      boardCursor = -1
+    }
     var text = String(raw || "").trim()
     if (text === "") {
       boardError = "timetable unreachable"
       return
     }
-    var result = Model.parseDepartures(text)
+    var route = key.indexOf("route:") === 0
+    var result = route ? Model.parseConnections(text) : Model.parseDepartures(text)
     if (!result.ok) {
       boardError = result.error
       return
     }
     boardError = ""
-    stationName = result.station
-    departures = result.departures
+    var openId = connectionFromBoard && departures[boardCursor] ? departures[boardCursor].id : ""
+    if (route) {
+      var first = result.connections[0]
+      routeFromName = first ? first.fromName : ""
+      routeToName = first ? first.toName : ""
+      departures = Model.connectionDepartures(result.connections, followedRoute.to)
+    } else {
+      stationName = result.station
+      departures = result.departures
+    }
     loaded = true
     updatedAt = Date.now() / 1000
     nowSec = updatedAt
@@ -369,6 +436,13 @@ Panel {
         }
       }
     }
+    // Same for a connection opened from the board.
+    for (var j = 0; openId !== "" && j < departures.length; j++) {
+      if (departures[j].id === openId) {
+        boardCursor = j
+        break
+      }
+    }
     checkAlert()
   }
 
@@ -380,9 +454,10 @@ Panel {
 
   Process {
     id: boardProc
+    property string key: ""
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.applyBoard(text)
+      onStreamFinished: root.applyBoard(text, boardProc.key)
     }
     onExited: function(exitCode) {
       if (exitCode !== 0 && root.departures.length === 0) root.boardError = "timetable unreachable"
@@ -414,6 +489,7 @@ Panel {
 
   function showBoard() {
     view = "board"
+    connectionFromBoard = false
     resultsFocused = false
     whenMenuOpen = false
     clearSuggestions()
@@ -423,16 +499,23 @@ Panel {
   function openDeparture(index) {
     if (departures.length === 0) return
     boardCursor = Math.max(0, Math.min(departures.length - 1, index))
-    detailDeparture = departures[boardCursor]
-    view = "detail"
+    if (departures[boardCursor].connection) {
+      connectionFromBoard = true
+      detailDeparture = null
+      view = "connection"
+    } else {
+      detailDeparture = departures[boardCursor]
+      view = "detail"
+    }
     focusKeys()
   }
 
   // ---- Route search -----------------------------------------------------------
 
   function openRouteSearch(from, to) {
-    if (view !== "route" && view !== "connection")
-      routeFromBoard = root.opened && (view === "board" || view === "detail")
+    if (view !== "route" && (view !== "connection" || connectionFromBoard))
+      routeFromBoard = root.opened && (view === "board" || view === "detail" || view === "connection")
+    connectionFromBoard = false
     view = "route"
     whenMenuOpen = false
     clearSuggestions()
@@ -524,6 +607,11 @@ Panel {
 
   // Saves the route in the query (or the one on screen) as a favourite.
   function saveFavourite() {
+    if (connectionFromBoard) {
+      var c = detailConnection
+      addFavouriteRoute(c && c.fromName || followedRoute.from, c && c.toName || followedRoute.to)
+      return
+    }
     var q = Model.parseRouteQuery(queryField.text, homeStation)
     var from = q.from || routeFrom
     var to = q.to || routeTo
@@ -538,6 +626,10 @@ Panel {
       showNotice("type a route first")
       return
     }
+    addFavouriteRoute(from, to)
+  }
+
+  function addFavouriteRoute(from, to) {
     var result = Model.addFavourite(favourites, from, to)
     if (!result.added) {
       showNotice("already a favourite")
@@ -679,12 +771,14 @@ Panel {
   function activateSetting(index) {
     settingsCursor = index
     if (index === 0) homeField.edit()
-    else if (index === 1) refreshField.edit()
-    else if (index === 2) delayField.edit()
-    else if (index === 3) resultsField.edit()
-    else if (index === 4) saveSetting("showInBar", !showInBar)
-    else if (index === 5) saveSetting("palette", figma ? "Theme" : "Figma")
-    else if (index === 6) saveSetting("shortcuts", !shortcutsEnabled)
+    else if (index === 1) toggleFollowRoute()
+    else if (index === 2) routeField.edit()
+    else if (index === 3) refreshField.edit()
+    else if (index === 4) delayField.edit()
+    else if (index === 5) resultsField.edit()
+    else if (index === 6) saveSetting("showInBar", !showInBar)
+    else if (index === 7) saveSetting("palette", figma ? "Theme" : "Figma")
+    else if (index === 8) saveSetting("shortcuts", !shortcutsEnabled)
     else {
       var fav = favourites[index - settingsFixedRows]
       if (fav) openRouteSearch(fav.from, fav.to)
@@ -695,6 +789,28 @@ Panel {
     if (index < 0 || index >= favourites.length) return
     saveSetting("favourites", Model.serializeFavourites(Model.removeFavourite(favourites, index)))
     if (settingsCursor >= settingsRows - 1) settingsCursor = Math.max(0, settingsRows - 2)
+  }
+
+  // Turning it on without a route goes straight to the route field.
+  function toggleFollowRoute() {
+    var turningOn = !followRoute
+    saveSetting("barMode", turningOn ? "Route" : "Home station")
+    if (turningOn && followedRoute.to === "") {
+      settingsCursor = 2
+      routeField.edit()
+    }
+  }
+
+  // Stored as "From > To" like the favourites; a bare "Thun" starts at the
+  // home station. Saving a route also switches the bar to it.
+  function commitRoute(text) {
+    var q = Model.parseRouteQuery(text, homeStation)
+    var value = q.to === "" ? "" : (q.explicit && q.from !== "" ? q.from + " > " + q.to : q.to)
+    var pairs = []
+    if (value !== barRoute) pairs.push(["barRoute", value])
+    if (value !== "" && !followRoute) pairs.push(["barMode", "Route"])
+    if (pairs.length) saveSettings(pairs)
+    focusKeys()
   }
 
   function commitHome(text) {
@@ -723,6 +839,8 @@ Panel {
         return
       }
       routeCursor = Math.max(0, Math.min(connections.length - 1, routeCursor + dy))
+    } else if (view === "connection" && connectionFromBoard) {
+      boardCursor = Math.max(0, Math.min(departures.length - 1, boardCursor + dy))
     } else if (view === "connection") {
       routeCursor = Math.max(0, Math.min(connections.length - 1, routeCursor + dy))
     } else if (view === "settings") {
@@ -739,6 +857,7 @@ Panel {
 
   function goBack() {
     if (view === "detail" || view === "settings") showBoard()
+    else if (view === "connection" && connectionFromBoard) showBoard()
     else if (view === "connection") backToResults()
     else if (view === "route" && whenMenuOpen) whenMenuOpen = false
     else if (view === "route") exitRoute()
@@ -763,7 +882,8 @@ Panel {
       else if (t >= "1" && t <= "9") useFavourite(parseInt(t, 10) - 1)
     } else if (view === "connection") {
       if (t === "\u0013") saveFavourite()
-      else if (t === "r") searchRoute()
+      else if (t === "r") connectionFromBoard ? refresh() : searchRoute()
+      else if (t === "/" && connectionFromBoard) openRouteSearch("", "")
     } else if (view === "settings") {
       if (t === ",") showBoard()
     }
@@ -772,7 +892,7 @@ Panel {
   // Tab swaps from and to in the route search; elsewhere it moves to the
   // neighbouring bar panel like every other Omarchy popup.
   function handleTab(direction) {
-    if (view === "route" || view === "connection") swapRoute()
+    if (view === "route" || (view === "connection" && !connectionFromBoard)) swapRoute()
     else switchPanel(direction)
   }
 
@@ -1204,8 +1324,10 @@ Panel {
             spacing: Style.space(2)
 
             Text {
-              text: root.stationName || root.homeStation
+              width: parent.width
+              text: root.boardTitle
               textFormat: Text.PlainText
+              elide: Text.ElideRight
               color: root.fg
               font.family: root.fontFamily
               font.pixelSize: Style.font.heading
@@ -1216,7 +1338,8 @@ Panel {
               width: parent.width
               text: {
                 var span = Model.boardSpan(root.departures, root.nowSec)
-                var s = "departures" + (span ? " · " + span : "")
+                var s = (root.routeMode ? "connections" : "departures") + (span ? " · " + span : "")
+                if (root.routeMode) return s + " · followed route"
                 return root.barDestination ? s + " · bar: to " + root.barDestination : s
               }
               textFormat: Text.PlainText
@@ -1257,7 +1380,7 @@ Panel {
 
             ColumnLabel { fg: root.dim; fontFamily: root.fontFamily; width: root.colTime; text: "TIME" }
             ColumnLabel { fg: root.dim; fontFamily: root.fontFamily; width: root.colLine; text: "LINE" }
-            ColumnLabel { fg: root.dim; fontFamily: root.fontFamily; width: parent.width - root.colTime - root.colLine - root.colPlatform - root.colStatus; text: "DESTINATION" }
+            ColumnLabel { fg: root.dim; fontFamily: root.fontFamily; width: parent.width - root.colTime - root.colLine - root.colPlatform - root.colStatus; text: root.routeMode ? "ARRIVAL" : "DESTINATION" }
             ColumnLabel { fg: root.dim; fontFamily: root.fontFamily; width: root.colPlatform; text: "PL"; horizontalAlignment: Text.AlignRight }
             ColumnLabel { fg: root.dim; fontFamily: root.fontFamily; width: root.colStatus; text: "STATUS"; horizontalAlignment: Text.AlignRight }
           }
@@ -1276,7 +1399,11 @@ Panel {
           leftPadding: Style.space(12)
           topPadding: Style.space(6)
           bottomPadding: Style.space(6)
-          text: root.boardError !== "" ? "Could not load departures: " + root.boardError : "Fetching departures…"
+          text: {
+            var what = root.routeMode ? "connections" : "departures"
+            if (root.boardError !== "") return "Could not load " + what + ": " + root.boardError
+            return root.loaded ? "No " + what + " right now." : "Fetching " + what + "…"
+          }
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
           color: root.dim
@@ -1343,7 +1470,10 @@ Panel {
               Text {
                 width: parent.width - root.colTime - root.colLine - root.colPlatform - root.colStatus
                 anchors.verticalCenter: parent.verticalCenter
-                text: depRow.modelData.to
+                // Route mode: every row ends at the same stop, so show when.
+                text: depRow.modelData.connection
+                  ? depRow.modelData.arrTime + " · " + depRow.modelData.changes
+                  : depRow.modelData.to
                 textFormat: Text.PlainText
                 elide: Text.ElideRight
                 color: depRow.cancelled ? root.dim : root.fg
@@ -2262,10 +2392,42 @@ Panel {
         }
 
         SettingRow {
-          label: "Refresh interval"; description: "how often departures are fetched"
+          label: "Follow a route"
+          description: root.routeMode ? "bar and board show the route below"
+            : (root.followRoute ? "set a route below" : "off: every train from the home station")
           current: root.settingsCursor === 1
           fg: root.fg; dim: root.dim; highlight: root.rowHighlight; fontFamily: root.fontFamily
           onActivated: root.activateSetting(1)
+
+          SbbToggle {
+            checked: root.followRoute
+            onColor: root.accent
+            offColor: root.raised
+            knobOn: root.figma ? Palette.base : Color.popups.background
+            knobOff: root.dim
+          }
+        }
+
+        SettingRow {
+          label: "Route"; description: "from > to, e.g. Bern > Thun"
+          current: root.settingsCursor === 2
+          fg: root.fg; dim: root.dim; highlight: root.rowHighlight; fontFamily: root.fontFamily
+          onActivated: root.activateSetting(2)
+
+          SettingField {
+            id: routeField
+            value: root.barRoute
+            fg: root.fg; fill: root.surface; borderColor: root.hairline; accent: root.accent; fontFamily: root.fontFamily
+            onCommitted: function(text) { root.commitRoute(text) }
+            onCancelled: root.focusKeys()
+          }
+        }
+
+        SettingRow {
+          label: "Refresh interval"; description: "how often departures are fetched"
+          current: root.settingsCursor === 3
+          fg: root.fg; dim: root.dim; highlight: root.rowHighlight; fontFamily: root.fontFamily
+          onActivated: root.activateSetting(3)
 
           SettingField {
             id: refreshField
@@ -2280,9 +2442,9 @@ Panel {
 
         SettingRow {
           label: "Delay alert"; description: "notify when late by at least (0 = off)"
-          current: root.settingsCursor === 2
+          current: root.settingsCursor === 4
           fg: root.fg; dim: root.dim; highlight: root.rowHighlight; fontFamily: root.fontFamily
-          onActivated: root.activateSetting(2)
+          onActivated: root.activateSetting(4)
 
           SettingField {
             id: delayField
@@ -2297,9 +2459,9 @@ Panel {
 
         SettingRow {
           label: "Results"; description: "connections per route search, favourites too"
-          current: root.settingsCursor === 3
+          current: root.settingsCursor === 5
           fg: root.fg; dim: root.dim; highlight: root.rowHighlight; fontFamily: root.fontFamily
-          onActivated: root.activateSetting(3)
+          onActivated: root.activateSetting(5)
 
           SettingField {
             id: resultsField
@@ -2312,10 +2474,10 @@ Panel {
         }
 
         SettingRow {
-          label: "Show in bar"; description: "next departure from home station"
-          current: root.settingsCursor === 4
+          label: "Show in bar"; description: "next departure, or only the icon"
+          current: root.settingsCursor === 6
           fg: root.fg; dim: root.dim; highlight: root.rowHighlight; fontFamily: root.fontFamily
-          onActivated: root.activateSetting(4)
+          onActivated: root.activateSetting(6)
 
           SbbToggle {
             checked: root.showInBar
@@ -2328,9 +2490,9 @@ Panel {
 
         SettingRow {
           label: "Follow Omarchy theme"; description: "reuse colours from the active theme"
-          current: root.settingsCursor === 5
+          current: root.settingsCursor === 7
           fg: root.fg; dim: root.dim; highlight: root.rowHighlight; fontFamily: root.fontFamily
-          onActivated: root.activateSetting(5)
+          onActivated: root.activateSetting(7)
 
           SbbToggle {
             checked: !root.figma
@@ -2343,9 +2505,9 @@ Panel {
 
         SettingRow {
           label: "Keyboard shortcuts"; description: root.shortcutStatus
-          current: root.settingsCursor === 6
+          current: root.settingsCursor === 8
           fg: root.fg; dim: root.dim; highlight: root.rowHighlight; fontFamily: root.fontFamily
-          onActivated: root.activateSetting(6)
+          onActivated: root.activateSetting(8)
 
           SbbToggle {
             checked: root.shortcutsEnabled
