@@ -171,6 +171,55 @@ check("serialize favourites", Model.serializeFavourites(Model.addFavourite(favs,
   "Zürich HB > Luzern; Bern > Zürich HB; Zürich HB > Thun")
 check("remove favourite", Model.serializeFavourites(Model.removeFavourite(favs, 0)), "Bern > Zürich HB")
 
+// ---- Global shortcuts ------------------------------------------------------------
+
+check("parse keys", Model.parseKeys("super + alt + t"), { ok: true, mask: 72, key: "T", keys: "SUPER + ALT + T" })
+check("parse control alias", Model.parseKeys("SUPER + CONTROL + ALT + 1").keys, "SUPER + CTRL + ALT + 1")
+check("bad modifier", Model.parseKeys("HYPER + T").ok, false)
+check("empty key", Model.parseKeys("SUPER + ").ok, false)
+check("pretty keys", Model.prettyKeys("SUPER + CTRL + ALT + 3"), "super+ctrl+alt+3")
+
+const cfg = { board: "SUPER + ALT + T", search: "SUPER + ALT + R", favourites: "SUPER + CTRL + ALT" }
+const specs = Model.shortcutSpecs("vvkycodevv.sbb", cfg)
+check("eleven shortcuts", specs.length, 11)
+check("board command", specs[0].command, "omarchy-shell shell toggle vvkycodevv.sbb '{}'")
+check("favourite command", specs[2].command, "omarchy-shell vvkycodevv.sbb favourite 1")
+check("empty keys turn shortcuts off", Model.shortcutSpecs("x", { board: "SUPER + T", search: "", favourites: "" }).length, 1)
+
+const binds = [
+  { modmask: 72, key: "code:10", description: "Switch to group window 1" },   // Omarchy, by keycode
+  { modmask: 72, key: "S", description: "Move window to scratchpad" },
+  { modmask: 76, key: "5", description: "My own thing" },
+  { modmask: 72, key: "T", description: "SBB departures" },                    // hand written, older README
+  { modmask: 72, key: "B", description: "SBB: departures" }                     // plugin made, old key
+]
+const plan = Model.planShortcuts(binds, specs)
+check("free keys bound", plan.bind.map(b => b.keys).slice(0, 3), ["SUPER + ALT + T", "SUPER + ALT + R", "SUPER + CTRL + ALT + 1"])
+check("taken key skipped", plan.skipped.map(b => [b.keys, b.owner]), [["SUPER + CTRL + ALT + 5", "My own thing"]])
+check("hand written SBB bind is replaced, not a clash", plan.bind.some(b => b.keys === "SUPER + ALT + T"), true)
+check("stale plugin bind removed", plan.stale, ["SUPER + ALT + B"])
+check("keycode clash found", Model.planShortcuts(binds, Model.shortcutSpecs("x", { board: "SUPER + ALT + 1", search: "", favourites: "" })).skipped[0].owner,
+  "Switch to group window 1")
+check("invalid keys reported", Model.planShortcuts([], Model.shortcutSpecs("x", { board: "NOPE + T", search: "", favourites: "" })).invalid.length, 1)
+check("disabled removes plugin binds only", Model.planShortcuts(binds, []).stale, ["SUPER + ALT + B"])
+
+const plain = [
+  "bindd", "\tmodmask: 72", "\tsubmap: ", "\tkey: SUPER + ALT + code:10", "\tkeycode: 0",
+  "\tdescription: Switch to group window 1", "\tdispatcher: __lua", "\targ: 225", "",
+  "bindd", "\tmodmask: 72", "\tkey: S", "\tdescription: Move window to scratchpad", "\tdispatcher: __lua", ""
+].join("\n")
+check("plain binds parsed", Model.parsePlainBinds(plain),
+  [{ modmask: 72, key: "code:10", description: "Switch to group window 1", dispatcher: "__lua" },
+   { modmask: 72, key: "S", description: "Move window to scratchpad", dispatcher: "__lua" }])
+check("keycode clash from real output", Model.planShortcuts(Model.parsePlainBinds(plain),
+  Model.shortcutSpecs("x", { board: "", search: "", favourites: "SUPER + ALT" })).skipped.map(b => b.keys),
+  ["SUPER + ALT + 1"])
+
+const lua = Model.shortcutsLua({ stale: ["SUPER + ALT + B"], bind: [plan.bind[0]] })
+check("lua", lua, 'hl.unbind("SUPER + ALT + B")\nhl.unbind("SUPER + ALT + T")\n'
+  + 'hl.bind("SUPER + ALT + T", hl.dsp.exec_cmd("omarchy-shell shell toggle vvkycodevv.sbb \'{}\'"), { description = "SBB: departures" })')
+check("lua escapes quotes", Model.shortcutsLua({ stale: [], bind: [{ keys: "SUPER + T", command: 'say "hi"', description: "SBB: x" }] }).indexOf('say \\"hi\\"') !== -1, true)
+
 if (failures) {
   console.log(failures + " failed")
   process.exit(1)

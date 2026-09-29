@@ -63,21 +63,31 @@ entry in `~/.config/omarchy/shell.json`.
 | `delayAlertMinutes` | `3` | Notify at this delay; `0` means "don't tell me" |
 | `badgeStyle` | `Rail red` | `Theme` for calmer line badges |
 | `favourites` | empty | `From > To`, separated by `;`, e.g. `Bern > Thun; Basel SBB > Olten` |
+| `shortcuts` | `true` | Register the keyboard shortcuts below |
+| `boardShortcut` | `SUPER + ALT + T` | Opens the board |
+| `searchShortcut` | `SUPER + ALT + R` | Opens the route search |
+| `favouriteShortcut` | `SUPER + CTRL + ALT` | Modifiers for favourites 1–9 |
 
-## Keyboard shortcuts (optional)
+## Keyboard shortcuts
 
-The plugin doesn't add any global shortcuts by itself. For some, paste this into
-`~/.config/hypr/bindings.lua`. First check the keys are free with
-`omarchy menu keybindings --print`. (Favourites live on `super+ctrl+alt`
-because Omarchy already uses `super+alt+1`–`5` for window groups.)
+They set themselves up. No config editing, no copy-paste:
 
-```lua
-o.bind("SUPER + ALT + T", "SBB departures", "omarchy-shell shell toggle vvkycodevv.sbb '{}'")
-o.bind("SUPER + ALT + R", "SBB route search", "omarchy-shell vvkycodevv.sbb toggleSearch")
-for i = 1, 9 do
-  o.bind("SUPER + CTRL + ALT + " .. i, "SBB favourite route " .. i, "omarchy-shell vvkycodevv.sbb favourite " .. i)
-end
-```
+| Keys | Does |
+| --- | --- |
+| `super+alt+t` | Departures board (press again to close) |
+| `super+alt+r` | Route search (same deal) |
+| `super+ctrl+alt+1`–`9` | Favourite route 1–9 |
+
+Already using one of those keys for something else? The plugin backs off: it
+skips that key, keeps yours, and sends you a notification saying which one.
+
+Want different keys? Set `boardShortcut`, `searchShortcut` or
+`favouriteShortcut` (just the modifiers, like `SUPER + CTRL + ALT`). Leave one
+empty to switch it off, or flip "Keyboard shortcuts" off in the settings to
+turn them all off.
+
+The fine print: the shortcuts are live bindings, not lines in your config, so
+they only exist while the widget is on your bar.
 
 The same things work from any script:
 
@@ -94,7 +104,8 @@ omarchy-shell vvkycodevv.sbb refresh
   free, no account, no API key.
 - It needs `curl` and `notify-send`, both already on Omarchy.
 - The only file it writes is your own `shell.json`, when you change a setting
-  or save a favourite. No daemon, no sudo.
+  or save a favourite. Shortcuts go straight to Hyprland (`hyprctl eval`), not
+  into your config files. No daemon, no sudo.
 - Like every Omarchy plugin, it runs unsandboxed with your user permissions.
 
 ## Remove

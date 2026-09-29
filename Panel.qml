@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
@@ -32,6 +33,11 @@ Panel {
   readonly property string barDestination: String(setting("barDestination", "")).trim()
   readonly property bool compactBar: setting("barStyle", "Full") === "Compact"
   readonly property bool showInBar: String(setting("showInBar", true)) !== "false"
+  // Global Hyprland shortcuts the plugin registers itself (see Shortcuts).
+  readonly property bool shortcutsEnabled: String(setting("shortcuts", true)) !== "false"
+  readonly property string boardShortcut: String(setting("boardShortcut", "SUPER + ALT + T"))
+  readonly property string searchShortcut: String(setting("searchShortcut", "SUPER + ALT + R"))
+  readonly property string favouriteShortcut: String(setting("favouriteShortcut", "SUPER + CTRL + ALT"))
   readonly property int departureCount: Math.max(3, Math.min(20, parseInt(setting("departures", 8), 10) || 8))
   // Connections per route search, favourites included. The popup does not
   // scroll, so 10 is the most that fits.
@@ -121,6 +127,109 @@ Panel {
   onDepartureCountChanged: queueRefresh()
   onConnectionCountChanged: if ((view === "route" || view === "connection") && routeTo !== "") searchRoute()
 
+  // ---- Shortcuts ----------------------------------------------------------------
+  // Installing a plugin cannot add Hyprland bindings, so the plugin registers
+  // them at runtime with hyprctl eval: on load, when a shortcut setting
+  // changes, and after every Hyprland config reload (which drops runtime
+  // bindings). Keys something else already uses are skipped, never taken
+  // over. Every bar (one per monitor) runs this; the Lua unbinds each key
+  // before binding it, so that never doubles a shortcut.
+
+  property var shortcutPlan: ({ bind: [], skipped: [], invalid: [], stale: [] })
+  property bool shortcutsQueued: false
+
+  onShortcutsEnabledChanged: syncShortcuts()
+  onBoardShortcutChanged: syncShortcuts()
+  onSearchShortcutChanged: syncShortcuts()
+  onFavouriteShortcutChanged: syncShortcuts()
+  Component.onCompleted: syncShortcuts()
+
+  function syncShortcuts() {
+    shortcutTimer.restart()
+  }
+
+  // "super+ctrl+alt+3" when favourite 3 has a live shortcut, else "".
+  function favouriteKeys(n) {
+    var list = shortcutPlan.bind || []
+    for (var i = 0; i < list.length; i++)
+      if (list[i].favourite === n) return Model.prettyKeys(list[i].keys)
+    return ""
+  }
+
+  readonly property string shortcutStatus: {
+    if (!shortcutsEnabled) return "off"
+    var p = shortcutPlan
+    var parts = []
+    var favs = 0
+    for (var i = 0; i < p.bind.length; i++) {
+      var b = p.bind[i]
+      if (b.favourite) favs++
+      else parts.push(Model.prettyKeys(b.keys) + (b.description.indexOf("search") !== -1 ? " search" : " board"))
+    }
+    if (favs > 0) parts.push(Model.prettyKeys(favouriteShortcut + " + 1").replace(/1$/, "1–9") + " favourites")
+    var s = parts.length > 0 ? parts.join(" · ") : "none active"
+    if (p.skipped.length > 0) s += " · " + p.skipped.length + " taken"
+    return s
+  }
+
+  function applyShortcuts(text) {
+    var binds = Model.parsePlainBinds(text)
+    // No bindings at all means hyprctl failed; leave everything as it is.
+    if (binds.length === 0) return
+    var specs = shortcutsEnabled
+      ? Model.shortcutSpecs(root.moduleName, { board: boardShortcut, search: searchShortcut, favourites: favouriteShortcut })
+      : []
+    var plan = Model.planShortcuts(binds, specs)
+    shortcutPlan = plan
+    var lua = Model.shortcutsLua(plan)
+    if (lua !== "") Quickshell.execDetached(["hyprctl", "eval", lua])
+
+    var problems = []
+    for (var i = 0; i < plan.skipped.length; i++)
+      problems.push(Model.prettyKeys(plan.skipped[i].keys) + " is used by " + plan.skipped[i].owner)
+    for (var j = 0; j < plan.invalid.length; j++)
+      problems.push("\"" + plan.invalid[j].keys + "\" is not a key combination")
+    // Once per shell session for the same set of problems, not on every reload.
+    if (problems.length > 0 && Shared.claim("shortcuts:" + problems.join("|")))
+      Quickshell.execDetached(["notify-send", "-a", "SBB", "-i", "train", "SBB: some shortcuts were skipped",
+        problems.join("\n") + "\nChange them in the plugin settings (shell.json)."])
+  }
+
+  Timer {
+    id: shortcutTimer
+    interval: 400
+    onTriggered: {
+      if (bindsProc.running) {
+        root.shortcutsQueued = true
+        return
+      }
+      bindsProc.running = true
+    }
+  }
+
+  // Plain output on purpose, see Model.parsePlainBinds.
+  Process {
+    id: bindsProc
+    command: ["hyprctl", "binds"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyShortcuts(text)
+    }
+    onExited: {
+      if (root.shortcutsQueued) {
+        root.shortcutsQueued = false
+        root.syncShortcuts()
+      }
+    }
+  }
+
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      if (event && String(event.name) === "configreloaded") root.syncShortcuts()
+    }
+  }
+
   // ---- Panel view state -------------------------------------------------------
 
   property string view: "board"          // board | detail | route | connection | settings
@@ -140,7 +249,7 @@ Panel {
   property string routeNotice: ""
   // Esc in the route search goes back to the board when it was opened from
   // there, and closes the popup when it was opened on its own (right click,
-  // super+ctrl+alt+N, IPC).
+  // the favourite shortcuts, IPC).
   property bool routeFromBoard: false
 
   property string suggestSegment: ""     // "from" | "to" | ""
@@ -151,7 +260,7 @@ Panel {
   readonly property int whenOffset: Model.WHEN_OFFSETS[whenIndex] || 0
 
   // Fixed rows of the settings view, favourites follow.
-  readonly property int settingsFixedRows: 6
+  readonly property int settingsFixedRows: 7
   readonly property int settingsRows: settingsFixedRows + favourites.length
 
   readonly property bool typing: queryField.activeFocus
@@ -169,7 +278,7 @@ Panel {
 
   // ---- Lifecycle --------------------------------------------------------------
 
-  // Bar click, shell toggle/summon and super+alt+T: always the board, as in
+  // Bar click, shell toggle/summon and the board shortcut: always the board, as in
   // the design. The route search and settings have their own entry points.
   function open() {
     if (view !== "board") {
@@ -371,7 +480,7 @@ Panel {
     searchRoute()
   }
 
-  // super+ctrl+alt+N. A number without a favourite opens the search with the
+  // Favourite shortcut N. A number without a favourite opens the search with the
   // favourites list and says so, instead of showing the last search.
   function openFavourite(number) {
     if (number >= 1 && number <= favourites.length) {
@@ -422,7 +531,8 @@ Panel {
     }
     saveSetting("favourites", Model.serializeFavourites(result.list))
     var n = result.list.length
-    showNotice("saved as favourite " + n + (n <= 9 ? " · super+ctrl+alt+" + n : ""))
+    var keys = favouriteKeys(n)
+    showNotice("saved as favourite " + n + (keys ? " · " + keys : ""))
   }
 
   function showNotice(text) {
@@ -560,6 +670,7 @@ Panel {
     else if (index === 3) resultsField.edit()
     else if (index === 4) saveSetting("showInBar", !showInBar)
     else if (index === 5) saveSetting("palette", figma ? "Theme" : "Figma")
+    else if (index === 6) saveSetting("shortcuts", !shortcutsEnabled)
     else {
       var fav = favourites[index - settingsFixedRows]
       if (fav) openRouteSearch(fav.from, fav.to)
@@ -2214,6 +2325,21 @@ Panel {
           }
         }
 
+        SettingRow {
+          label: "Keyboard shortcuts"; description: root.shortcutStatus
+          current: root.settingsCursor === 6
+          fg: root.fg; dim: root.dim; highlight: root.rowHighlight; fontFamily: root.fontFamily
+          onActivated: root.activateSetting(6)
+
+          SbbToggle {
+            checked: root.shortcutsEnabled
+            onColor: root.accent
+            offColor: root.raised
+            knobOn: root.figma ? Palette.base : Color.popups.background
+            knobOff: root.dim
+          }
+        }
+
         Item { width: 1; height: Style.space(6) }
 
         ColumnLabel {
@@ -2285,8 +2411,8 @@ Panel {
 
               Text {
                 anchors.verticalCenter: parent.verticalCenter
-                visible: favRow.index < 9
-                text: "super+ctrl+alt+" + (favRow.index + 1)
+                visible: text !== ""
+                text: root.favouriteKeys(favRow.index + 1)
                 textFormat: Text.PlainText
                 color: root.platformColor
                 font.family: root.fontFamily

@@ -504,6 +504,174 @@ function swapRouteQuery(text, home) {
   return formatRoute(q.to, q.from)
 }
 
+// ---- Global shortcuts ------------------------------------------------------
+// The plugin registers its own Hyprland shortcuts at runtime (hyprctl eval),
+// skipping any key that something else already uses. Bindings it makes are
+// described "SBB: …" so they can be told apart and cleaned up later.
+
+var SHORTCUT_PREFIX = "SBB: "
+
+var MODMASK = { SUPER: 64, WIN: 64, LOGO: 64, MOD4: 64, ALT: 8, MOD1: 8, CTRL: 4, CONTROL: 4, SHIFT: 1 }
+var MOD_ORDER = [["SUPER", 64], ["CTRL", 4], ["ALT", 8], ["SHIFT", 1]]
+
+// Omarchy binds some keys by X keycode ("code:10" is 1), so a clash check on
+// key names alone misses them. US layout keycodes for digits and letters.
+var KEYCODES = { "1": 10, "2": 11, "3": 12, "4": 13, "5": 14, "6": 15, "7": 16, "8": 17, "9": 18, "0": 19,
+  q: 24, w: 25, e: 26, r: 27, t: 28, y: 29, u: 30, i: 31, o: 32, p: 33,
+  a: 38, s: 39, d: 40, f: 41, g: 42, h: 43, j: 44, k: 45, l: 46,
+  z: 52, x: 53, c: 54, v: 55, b: 56, n: 57, m: 58 }
+
+// "super + alt + t" → { ok, mask: 72, key: "T", keys: "SUPER + ALT + T" }
+function parseKeys(value) {
+  var parts = trim(value).split("+")
+  var key = trim(parts.pop())
+  var mask = 0
+  var mods = []
+  for (var i = 0; i < parts.length; i++) {
+    var mod = trim(parts[i]).toUpperCase()
+    if (!MODMASK[mod]) return { ok: false }
+    if ((mask & MODMASK[mod]) === 0) mods.push(mod === "CONTROL" ? "CTRL" : mod)
+    mask |= MODMASK[mod]
+  }
+  if (!key || /\s/.test(key) || /["\\]/.test(key)) return { ok: false }
+  if (key.length === 1) key = key.toUpperCase()
+  mods.push(key)
+  return { ok: true, mask: mask, key: key, keys: mods.join(" + ") }
+}
+
+// "SUPER + CTRL + ALT + 1" → "super+ctrl+alt+1", for labels.
+function prettyKeys(value) {
+  var p = parseKeys(value)
+  if (!p.ok) return ""
+  return p.keys.split(" + ").map(function(k) { return k.toLowerCase() }).join("+")
+}
+
+function keysFromBind(bind) {
+  var mods = []
+  for (var i = 0; i < MOD_ORDER.length; i++) if (bind.modmask & MOD_ORDER[i][1]) mods.push(MOD_ORDER[i][0])
+  mods.push(String(bind.key))
+  return mods.join(" + ")
+}
+
+function bindHitsKey(bind, parsed) {
+  if (!bind || bind.modmask !== parsed.mask) return false
+  var key = String(bind.key || "")
+  if (key.toLowerCase() === parsed.key.toLowerCase()) return true
+  var code = KEYCODES[parsed.key.toLowerCase()]
+  return code !== undefined && key === "code:" + code
+}
+
+// Reads plain `hyprctl binds`. Not `hyprctl -j binds`: for Lua bindings on a
+// keycode (Omarchy's super+alt+1..5) the JSON has an empty key, while the
+// plain text says "SUPER + ALT + code:10".
+function parsePlainBinds(text) {
+  var out = []
+  var cur = null
+  var lines = String(text || "").split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i]
+    if (line !== "" && line[0] !== "\t" && line[0] !== " ") {
+      cur = { modmask: 0, key: "", description: "", dispatcher: "" }
+      out.push(cur)
+      continue
+    }
+    if (!cur) continue
+    var m = /^\s+(\w+):\s?(.*)$/.exec(line)
+    if (!m) continue
+    if (m[1] === "modmask") cur.modmask = parseInt(m[2], 10) || 0
+    else if (m[1] === "key") cur.key = trim(m[2].split(" + ").pop())
+    else if (m[1] === "description") cur.description = trim(m[2])
+    else if (m[1] === "dispatcher") cur.dispatcher = trim(m[2])
+  }
+  return out
+}
+
+// SBB bindings, whether the plugin made them or the user wrote them by hand
+// from an older README, count as ours: the plugin may replace them.
+function isOwnBind(bind) {
+  return String(bind.description || "").indexOf("SBB") === 0
+}
+
+// The shortcuts the plugin wants. `cfg`: board, search, favourites (the
+// modifiers for favourites 1 to 9).
+function shortcutSpecs(pluginId, cfg) {
+  // An empty key turns that shortcut off.
+  var specs = []
+  if (trim(cfg.board) !== "")
+    specs.push({ keys: cfg.board, description: SHORTCUT_PREFIX + "departures", command: "omarchy-shell shell toggle " + pluginId + " '{}'" })
+  if (trim(cfg.search) !== "")
+    specs.push({ keys: cfg.search, description: SHORTCUT_PREFIX + "route search", command: "omarchy-shell " + pluginId + " toggleSearch" })
+  if (trim(cfg.favourites) !== "") {
+    for (var n = 1; n <= 9; n++)
+      specs.push({ keys: trim(cfg.favourites) + " + " + n, description: SHORTCUT_PREFIX + "favourite route " + n,
+                   command: "omarchy-shell " + pluginId + " favourite " + n, favourite: n })
+  }
+  return specs
+}
+
+// Decides what to bind given parsePlainBinds(`hyprctl binds`). Returns the specs to bind
+// (with canonical keys), the ones skipped because the key is taken (with the
+// owner's description), invalid ones, and stale plugin bindings to remove.
+function planShortcuts(binds, specs) {
+  var list = binds || []
+  var bind = []
+  var skipped = []
+  var invalid = []
+  for (var i = 0; i < specs.length; i++) {
+    var spec = specs[i]
+    var parsed = parseKeys(spec.keys)
+    if (!parsed.ok) {
+      invalid.push(spec)
+      continue
+    }
+    var owner = null
+    for (var j = 0; j < list.length; j++) {
+      if (bindHitsKey(list[j], parsed) && !isOwnBind(list[j])) {
+        owner = String(list[j].description || list[j].dispatcher || "another shortcut")
+        break
+      }
+    }
+    var entry = { keys: parsed.keys, mask: parsed.mask, key: parsed.key, description: spec.description,
+                  command: spec.command, favourite: spec.favourite || 0 }
+    if (owner) {
+      entry.owner = owner
+      skipped.push(entry)
+    } else {
+      bind.push(entry)
+    }
+  }
+  var stale = []
+  for (var s = 0; s < list.length; s++) {
+    var b = list[s]
+    if (String(b.description || "").indexOf(SHORTCUT_PREFIX) !== 0) continue
+    var kept = false
+    for (var k = 0; k < bind.length; k++) {
+      if (bindHitsKey(b, bind[k])) { kept = true; break }
+    }
+    var keys = keysFromBind(b)
+    if (!kept && stale.indexOf(keys) === -1) stale.push(keys)
+  }
+  return { bind: bind, skipped: skipped, invalid: invalid, stale: stale }
+}
+
+function luaString(value) {
+  return '"' + String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"'
+}
+
+// One Lua chunk for hyprctl eval. Every key is unbound before it is bound, so
+// running it twice (two monitors, a reload) never doubles a shortcut.
+function shortcutsLua(plan) {
+  var out = []
+  for (var i = 0; i < plan.stale.length; i++) out.push("hl.unbind(" + luaString(plan.stale[i]) + ")")
+  for (var j = 0; j < plan.bind.length; j++) {
+    var b = plan.bind[j]
+    out.push("hl.unbind(" + luaString(b.keys) + ")")
+    out.push("hl.bind(" + luaString(b.keys) + ", hl.dsp.exec_cmd(" + luaString(b.command) + "), { description = "
+      + luaString(b.description) + " })")
+  }
+  return out.join("\n")
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     foldKey: foldKey, stationboardUrl: stationboardUrl, connectionsUrl: connectionsUrl,
@@ -518,6 +686,8 @@ if (typeof module !== "undefined") {
     parseRouteQuery: parseRouteQuery, formatRoute: formatRoute, activeSegment: activeSegment,
     segmentText: segmentText, replaceSegment: replaceSegment, swapRouteQuery: swapRouteQuery,
     boardSpan: boardSpan, expectedTime: expectedTime, sectionLegs: sectionLegs,
-    whenLabel: whenLabel, WHEN_OFFSETS: WHEN_OFFSETS
+    whenLabel: whenLabel, WHEN_OFFSETS: WHEN_OFFSETS,
+    parseKeys: parseKeys, prettyKeys: prettyKeys, shortcutSpecs: shortcutSpecs,
+    planShortcuts: planShortcuts, shortcutsLua: shortcutsLua, parsePlainBinds: parsePlainBinds
   }
 }

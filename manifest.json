@@ -36,7 +36,11 @@
       "refreshSeconds": 60,
       "delayAlertMinutes": 3,
       "badgeStyle": "Rail red",
-      "favourites": ""
+      "favourites": "",
+      "shortcuts": true,
+      "boardShortcut": "SUPER + ALT + T",
+      "searchShortcut": "SUPER + ALT + R",
+      "favouriteShortcut": "SUPER + CTRL + ALT"
     },
     "schema": [
       {
@@ -135,7 +139,35 @@
         "type": "string",
         "label": "Favourite routes",
         "defaultValue": "",
-        "description": "From > To, separated by semicolons, e.g. Bern > Thun. Numbered 1 to 9: ctrl 1-9 in the route search, super+ctrl+alt+1-9 with the bindings from the README. Add the current route with ctrl s."
+        "description": "From > To, separated by semicolons, e.g. Bern > Thun. Numbered 1 to 9: ctrl 1-9 in the route search, and a global shortcut each (see favouriteShortcut). Add the current route with ctrl s."
+      },
+      {
+        "key": "shortcuts",
+        "type": "boolean",
+        "label": "Keyboard shortcuts",
+        "defaultValue": true,
+        "description": "Register global shortcuts for the board, the route search and favourites. Keys already in use are skipped."
+      },
+      {
+        "key": "boardShortcut",
+        "type": "string",
+        "label": "Board shortcut",
+        "defaultValue": "SUPER + ALT + T",
+        "description": "Toggles the departures board. Empty turns it off."
+      },
+      {
+        "key": "searchShortcut",
+        "type": "string",
+        "label": "Route search shortcut",
+        "defaultValue": "SUPER + ALT + R",
+        "description": "Toggles the route search. Empty turns it off."
+      },
+      {
+        "key": "favouriteShortcut",
+        "type": "string",
+        "label": "Favourite shortcut modifiers",
+        "defaultValue": "SUPER + CTRL + ALT",
+        "description": "Modifiers for favourites 1 to 9, e.g. SUPER + CTRL + ALT gives super+ctrl+alt+1. Empty turns them off."
       }
     ]
   }
