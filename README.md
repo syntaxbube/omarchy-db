@@ -1,6 +1,6 @@
-# SBB for Omarchy
+# Deutsche Bahn for Omarchy
 
-Your next Swiss train, right in the Omarchy bar. Know whether the IR 70 is on
+Your next German train, right in the Omarchy bar. Know whether the ICE 507 is on
 time *before* you sprint to platform 8, not after.
 
 <p align="center">
@@ -12,11 +12,11 @@ time *before* you sprint to platform 8, not after.
 - **A bar pill** with your next train: line, destination, time, and a countdown.
   Late? It says `+4'`. Cancelled? It says so, sadly.
 - **Follow your commute.** Don't care about every train leaving your station?
-  Set a route like `Bern > Thun` and the pill and board show only the next
+  Set a route like `Berlin Hbf > Leipzig Hbf` and the pill and board show only the next
   connections for it, changes included.
 - **A departures board** (click the pill). Hit `Enter` on a train to see its
   stops and whether the platform changed on you.
-- **Route search** (right click). Type `Luzern`, or `Bern > Thun`, press
+- **Route search** (right click). Type `Leipzig Hbf`, or `Berlin Hbf > Leipzig Hbf`, press
   `Enter`, done. Pick "in 30 min" if you're running late on purpose.
 - **Favourite routes.** `ctrl s` saves one, `ctrl 1`–`9` brings it back.
 - **Delay alerts.** A notification when your train is late or cancelled, so
@@ -30,13 +30,13 @@ time *before* you sprint to platform 8, not after.
 ## Install
 
 ```sh
-omarchy plugin add https://github.com/vvkycodevv/omarchy-sbb.git --enable
+omarchy plugin add https://github.com/vvkycodevv/omarchy-db.git --enable
 ```
 
 It shows up on the right of the bar. Prefer the middle?
 
 ```sh
-omarchy bar move vvkycodevv.sbb --section center
+omarchy bar move vvkycodevv.db --section center
 ```
 
 ## Driving it
@@ -55,10 +55,10 @@ entry in `~/.config/omarchy/shell.json`.
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| `homeStation` | `Zürich HB` | Where the board and pill look for trains |
+| `homeStation` | `Berlin Hbf` | Where the board and pill look for trains |
 | `barMode` | `Home station` | `Route` follows `barRoute` instead of the whole station |
-| `barRoute` | empty | `From > To`, e.g. `Bern > Thun`; just `Thun` starts at `homeStation` |
-| `barDestination` | empty | Home station mode: only follow trains that stop here, e.g. `Luzern` |
+| `barRoute` | empty | `From > To`, e.g. `Berlin Hbf > Leipzig Hbf`; just `Leipzig Hbf` starts at `homeStation` |
+| `barDestination` | empty | Home station mode: only follow trains that stop here, e.g. `Leipzig Hbf` |
 | `barStyle` | `Full` | `Compact` keeps just the time and status |
 | `showInBar` | `true` | `false` leaves only the little train icon |
 | `palette` | `Figma` | `Theme` follows your Omarchy theme instead of Tokyo Night |
@@ -67,7 +67,7 @@ entry in `~/.config/omarchy/shell.json`.
 | `refreshSeconds` | `60` | How often to check the timetable |
 | `delayAlertMinutes` | `3` | Notify at this delay; `0` means "don't tell me" |
 | `badgeStyle` | `Rail red` | `Theme` for calmer line badges |
-| `favourites` | empty | `From > To`, separated by `;`, e.g. `Bern > Thun; Basel SBB > Olten` |
+| `favourites` | empty | `From > To`, separated by `;`, e.g. `Berlin Hbf > Leipzig Hbf; Hamburg Hbf > Bremen Hbf` |
 | `shortcuts` | `true` | Register the keyboard shortcuts below |
 | `boardShortcut` | `SUPER + ALT + T` | Opens the board |
 | `searchShortcut` | `SUPER + ALT + R` | Opens the route search |
@@ -97,16 +97,16 @@ they only exist while the widget is on your bar.
 The same things work from any script:
 
 ```sh
-omarchy-shell vvkycodevv.sbb route "Bern" "Thun"
-omarchy-shell vvkycodevv.sbb favourite 1
-omarchy-shell vvkycodevv.sbb settings
-omarchy-shell vvkycodevv.sbb refresh
+omarchy-shell vvkycodevv.db route "Berlin Hbf" "Leipzig Hbf"
+omarchy-shell vvkycodevv.db favourite 1
+omarchy-shell vvkycodevv.db settings
+omarchy-shell vvkycodevv.db refresh
 ```
 
 ## Good to know
 
-- Timetable data comes from [transport.opendata.ch](https://transport.opendata.ch):
-  free, no account, no API key.
+- Timetable data comes from [v6.db.transport.rest](https://v6.db.transport.rest):
+  a Deutsche Bahn-compatible API that is free and needs no API key.
 - It needs `curl` and `notify-send`, both already on Omarchy.
 - Every response is size-capped (1 MB for timetables, 64 KB for station
   search, 512 KB for the Hyprland shortcut list) and dropped unread if it
@@ -119,7 +119,7 @@ omarchy-shell vvkycodevv.sbb refresh
 ## Remove
 
 ```sh
-omarchy plugin remove vvkycodevv.sbb
+omarchy plugin remove vvkycodevv.db
 ```
 
 No hard feelings. The trains will keep running without you.
@@ -127,13 +127,13 @@ No hard feelings. The trains will keep running without you.
 ## Hacking on it
 
 ```sh
-git clone https://github.com/vvkycodevv/omarchy-sbb.git ~/.config/omarchy/plugins/vvkycodevv.sbb
-TZ=Europe/Zurich node tests/model.test.js
-omarchy plugin validate ~/.config/omarchy/plugins/vvkycodevv.sbb
+git clone https://github.com/vvkycodevv/omarchy-db.git ~/.config/omarchy/plugins/vvkycodevv.db
+TZ=Europe/Berlin node tests/model.test.js
+omarchy plugin validate ~/.config/omarchy/plugins/vvkycodevv.db
 ```
 
 After editing the QML, run `omarchy restart shell` if a change doesn't show up.
 
 ---
 
-Not affiliated with SBB CFF FFS. Just a fan of trains that leave on time.
+Not affiliated with Deutsche Bahn AG. Just a fan of trains that leave on time.

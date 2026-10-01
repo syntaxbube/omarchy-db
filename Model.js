@@ -1,11 +1,12 @@
-// Pure helpers for the SBB plugin. No QML, no network: everything here takes
+// Pure helpers for the Deutsche Bahn plugin. No QML, no network: everything here takes
 // raw strings or plain objects and returns plain objects, so the whole file
 // can be exercised from `node tests/model.test.js`.
 //
-// Data source: https://transport.opendata.ch (free, no API key). All
-// timestamps it returns are Unix seconds; delays are whole minutes.
+// Data source: https://v6.db.transport.rest (free, no API key). Times are ISO 8601
+// strings and delays are seconds, following the common transport.rest schema.
 
-var API = "https://transport.opendata.ch/v1"
+var API = "https://v6.db.transport.rest"
+var TRANSPORT_OPTIONS = "&nationalExpress=true&national=true&regionalExpress=true&regional=true&suburban=true&bus=true&ferry=true&subway=true&tram=true&taxi=false"
 
 // Categories drawn as a neutral badge instead of the rail red one:
 // S-Bahn, regional and night services, buses, trams, boats.
@@ -35,23 +36,19 @@ function foldKey(value) {
 // ---- URLs ------------------------------------------------------------------
 
 function stationboardUrl(station, limit) {
-  return API + "/stationboard?station=" + encodeURIComponent(trim(station))
-    + "&limit=" + Math.max(1, Math.min(40, parseInt(limit, 10) || 10))
+  return API + "/departures?stop=" + encodeURIComponent(trim(station))
+    + "&results=" + Math.max(1, Math.min(40, parseInt(limit, 10) || 10))
+    + "&duration=1440&linesOfStops=true&remarks=false&language=en" + TRANSPORT_OPTIONS
 }
 
 // `when` is optional Unix seconds; without it the API searches from now.
-// `max` caps the limit: 10 for route searches, 16 (the API's own cap) for
-// the board when it follows a route.
+// Route searches return at most 10 results; the followed board may ask for 16.
 function connectionsUrl(from, to, limit, when, max) {
-  var url = API + "/connections?from=" + encodeURIComponent(trim(from))
+  var url = API + "/journeys?from=" + encodeURIComponent(trim(from))
     + "&to=" + encodeURIComponent(trim(to))
-    + "&limit=" + Math.max(1, Math.min(max || 10, parseInt(limit, 10) || 5))
-  if (when) {
-    var d = new Date(when * 1000)
-    url += "&date=" + d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate())
-      + "&time=" + pad2(d.getHours()) + ":" + pad2(d.getMinutes())
-  }
-  return url
+    + "&results=" + Math.max(1, Math.min(max || 10, parseInt(limit, 10) || 5))
+  if (when) url += "&departure=" + encodeURIComponent(new Date(when * 1000).toISOString())
+  return url + "&stopovers=true&remarks=false&language=en" + TRANSPORT_OPTIONS
 }
 
 // ---- Response limits -------------------------------------------------------
@@ -64,7 +61,7 @@ function connectionsUrl(from, to, limit, when, max) {
 var LIMITS = { timetable: 1048576, stations: 65536, binds: 524288 }
 
 function cappedCommand(argv, limit) {
-  return ["sh", "-c", 'limit="$1"; shift; "$@" | head -c "$limit"', "sbb-capped", String(limit + 1)].concat(argv)
+  return ["sh", "-c", 'limit="$1"; shift; "$@" | head -c "$limit"', "db-capped", String(limit + 1)].concat(argv)
 }
 
 function curlCommand(url, limit, seconds) {
@@ -89,7 +86,8 @@ function withinLimit(text, limit) {
 }
 
 function locationsUrl(query) {
-  return API + "/locations?type=station&query=" + encodeURIComponent(trim(query))
+  return API + "/locations?query=" + encodeURIComponent(trim(query))
+    + "&results=6&stops=true&addresses=false&poi=false&language=en"
 }
 
 // ---- Time ------------------------------------------------------------------
@@ -153,77 +151,65 @@ function isLocalCategory(category) {
 
 // ---- Departures ------------------------------------------------------------
 
-function delayOf(stop) {
-  if (!stop) return 0
-  var d = parseInt(stop.delay, 10)
-  if (!isNaN(d)) return Math.max(0, d)
-  var planned = parseInt(stop.departureTimestamp, 10)
-  var expected = stop.prognosis ? isoToSeconds(stop.prognosis.departure) : null
-  if (!isNaN(planned) && expected !== null) return Math.max(0, Math.round((expected - planned) / 60))
-  return 0
+function errorMessage(data, fallback) {
+  if (!data) return fallback
+  if (data.errors && data.errors[0]) return String(data.errors[0].message || data.errors[0])
+  return data.message || data.msg || (typeof data.error === "string" ? data.error : fallback)
 }
 
-// The v1 API has no stable cancellation flag; some responses carry one on the
-// journey or the stop, so both are checked and anything else counts as running.
+function delayOf(stop, kind) {
+  if (!stop) return 0
+  var field = kind === "arrival" ? stop.arrivalDelay : stop.departureDelay
+  var seconds = parseInt(field !== undefined && field !== null ? field : stop.delay, 10)
+  return isNaN(seconds) ? 0 : Math.max(0, Math.round(seconds / 60))
+}
+
 function isCancelled(entry) {
-  if (!entry) return false
-  if (entry.cancelled === true || entry.isCancelled === true) return true
-  var stop = entry.stop || entry
-  return stop.cancelled === true || stop.isCancelled === true
+  return !!(entry && (entry.cancelled === true || entry.isCancelled === true))
+}
+
+function lineInfo(line) {
+  line = line || {}
+  var name = trim(line.name)
+  var m = /^([A-Za-z]+)\s*(.*)$/.exec(name)
+  var category = trim(line.productName || (m && m[1]) || line.product)
+  var number = trim(line.fahrtNr || (m && m[2]))
+  return { label: name || lineLabel(category, number), category: category,
+           local: ["nationalExpress", "national"].indexOf(line.product) === -1 }
 }
 
 function parseDepartures(raw) {
   var data
-  try {
-    data = typeof raw === "string" ? JSON.parse(raw) : raw
-  } catch (e) {
-    return { ok: false, station: "", departures: [], error: "Could not read the timetable" }
-  }
-  if (!data || !data.stationboard) {
-    var msg = data && data.errors && data.errors[0] && data.errors[0].message
-    return { ok: false, station: "", departures: [], error: msg ? String(msg) : "Unknown station" }
-  }
+  try { data = typeof raw === "string" ? JSON.parse(raw) : raw }
+  catch (e) { return { ok: false, station: "", departures: [], error: "Could not read the timetable" } }
+  var list = data && (data.departures || (Array.isArray(data) ? data : null))
+  if (!list) return { ok: false, station: "", departures: [], error: errorMessage(data, "Unknown station") }
 
   var out = []
-  for (var i = 0; i < data.stationboard.length; i++) {
-    var e = data.stationboard[i]
-    if (!e || !e.stop) continue
-    var ts = parseInt(e.stop.departureTimestamp, 10)
-    if (isNaN(ts)) continue
-
-    var planned = trim(e.stop.platform)
-    var prognosed = e.stop.prognosis ? trim(e.stop.prognosis.platform) : ""
-    var via = []
-    var stops = []
-    var pass = e.passList || []
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i]
+    if (!e) continue
+    var plannedTs = isoToSeconds(e.plannedWhen || e.when)
+    if (plannedTs === null) continue
+    var info = lineInfo(e.line)
+    var planned = trim(e.plannedPlatform)
+    var actual = trim(e.platform)
+    var via = [], stops = [], pass = e.stopovers || []
     for (var p = 1; p < pass.length; p++) {
-      if (!pass[p] || !pass[p].station || !pass[p].station.name) continue
-      var name = String(pass[p].station.name)
-      var stopTs = parseInt(pass[p].arrivalTimestamp, 10)
-      if (isNaN(stopTs)) stopTs = parseInt(pass[p].departureTimestamp, 10)
+      var po = pass[p], name = po && po.stop && po.stop.name ? String(po.stop.name) : ""
+      if (!name) continue
+      var stopTs = isoToSeconds(po.arrival || po.plannedArrival || po.departure || po.plannedDeparture)
       via.push(name)
-      stops.push({ name: name, time: isNaN(stopTs) ? "" : clock(stopTs), platform: trim(pass[p].platform) })
+      stops.push({ name: name, time: stopTs === null ? "" : clock(stopTs), platform: trim(po.platform || po.plannedPlatform) })
     }
-
-    out.push({
-      id: trim(e.name) + "@" + ts,
-      ts: ts,
-      time: clock(ts),
-      line: lineLabel(e.category, e.number),
-      category: trim(e.category),
-      local: isLocalCategory(e.category),
-      to: trim(e.to),
-      via: via,
-      stops: stops,
-      platform: prognosed || planned,
-      plannedPlatform: planned,
-      platformChanged: prognosed !== "" && planned !== "" && prognosed !== planned,
-      delay: delayOf(e.stop),
-      cancelled: isCancelled(e)
-    })
+    out.push({ id: trim(e.tripId || (e.line && e.line.id)) + "@" + plannedTs, ts: plannedTs,
+      time: clock(plannedTs), line: info.label, category: info.category, local: info.local,
+      to: trim(e.direction), via: via, stops: stops, platform: actual || planned,
+      plannedPlatform: planned, platformChanged: actual !== "" && planned !== "" && actual !== planned,
+      delay: delayOf(e), cancelled: isCancelled(e) })
   }
-
-  var station = data.station && data.station.name ? String(data.station.name) : ""
+  var station = data.stop && data.stop.name ? String(data.stop.name)
+    : (list[0] && list[0].stop && list[0].stop.name ? String(list[0].stop.name) : "")
   return { ok: true, station: station, departures: out, error: "" }
 }
 
@@ -324,110 +310,60 @@ function alertFor(dep, threshold, alreadySent) {
 // ---- Connections -----------------------------------------------------------
 
 function sectionLines(connection) {
-  var lines = []
-  var sections = connection.sections || []
-  for (var i = 0; i < sections.length; i++) {
-    var j = sections[i] && sections[i].journey
-    if (!j) continue
-    lines.push({ label: lineLabel(j.category, j.number), local: isLocalCategory(j.category) })
-  }
-  if (lines.length === 0) {
-    var products = connection.products || []
-    for (var k = 0; k < products.length; k++) {
-      var parts = /^([A-Za-z]+)\s*(\d*)$/.exec(trim(products[k]))
-      lines.push(parts
-        ? { label: lineLabel(parts[1], parts[2]), local: isLocalCategory(parts[1]) }
-        : { label: trim(products[k]), local: false })
-    }
-  }
+  var lines = [], legs = connection.legs || []
+  for (var i = 0; i < legs.length; i++) if (legs[i] && legs[i].line) lines.push(lineInfo(legs[i].line))
   return lines
 }
 
 function stopName(stop) {
-  if (!stop) return ""
-  if (stop.station && stop.station.name) return String(stop.station.name)
-  if (stop.location && stop.location.name) return String(stop.location.name)
-  return ""
+  return stop && stop.name ? String(stop.name) : ""
 }
 
-function stopPlatform(stop) {
-  if (!stop) return ""
-  var prognosed = stop.prognosis ? trim(stop.prognosis.platform) : ""
-  return prognosed || trim(stop.platform)
-}
-
-// Every leg of a connection for the details view: rides with their line,
-// times and platforms, and the walks between them.
 function sectionLegs(connection) {
-  var legs = []
-  var sections = connection.sections || []
-  for (var i = 0; i < sections.length; i++) {
-    var s = sections[i]
-    if (!s) continue
-    var dep = s.departure || {}
-    var arr = s.arrival || {}
-    var depTs = parseInt(dep.departureTimestamp, 10)
-    var arrTs = parseInt(arr.arrivalTimestamp, 10)
-    if (s.journey) {
-      legs.push({
-        kind: "ride",
-        line: lineLabel(s.journey.category, s.journey.number),
-        local: isLocalCategory(s.journey.category),
-        toward: trim(s.journey.to),
-        from: stopName(dep),
-        to: stopName(arr),
-        depTime: isNaN(depTs) ? "" : clock(depTs),
-        arrTime: isNaN(arrTs) ? "" : clock(arrTs),
-        depPlatform: stopPlatform(dep),
-        arrPlatform: stopPlatform(arr),
-        delay: delayOf(dep)
-      })
-    } else if (s.walk) {
-      var secs = parseInt(s.walk.duration, 10)
-      var mins = !isNaN(secs) ? Math.round(secs / 60)
-        : (!isNaN(depTs) && !isNaN(arrTs) ? Math.round((arrTs - depTs) / 60) : null)
-      legs.push({ kind: "walk", minutes: mins, from: stopName(dep), to: stopName(arr) })
+  var out = [], legs = connection.legs || []
+  for (var i = 0; i < legs.length; i++) {
+    var leg = legs[i]
+    if (!leg) continue
+    var dep = isoToSeconds(leg.plannedDeparture || leg.departure)
+    var arr = isoToSeconds(leg.plannedArrival || leg.arrival)
+    if (leg.walking || !leg.line) {
+      var actualDep = isoToSeconds(leg.departure || leg.plannedDeparture)
+      var actualArr = isoToSeconds(leg.arrival || leg.plannedArrival)
+      out.push({ kind: "walk", minutes: actualDep === null || actualArr === null ? null : Math.round((actualArr - actualDep) / 60),
+        from: stopName(leg.origin), to: stopName(leg.destination) })
+    } else {
+      var info = lineInfo(leg.line)
+      out.push({ kind: "ride", line: info.label, local: info.local, toward: trim(leg.direction),
+        from: stopName(leg.origin), to: stopName(leg.destination), depTime: dep === null ? "" : clock(dep),
+        arrTime: arr === null ? "" : clock(arr), depPlatform: trim(leg.departurePlatform || leg.plannedDeparturePlatform),
+        arrPlatform: trim(leg.arrivalPlatform || leg.plannedArrivalPlatform), delay: delayOf(leg), cancelled: isCancelled(leg) })
     }
   }
-  return legs
+  return out
 }
 
 function parseConnections(raw) {
   var data
-  try {
-    data = typeof raw === "string" ? JSON.parse(raw) : raw
-  } catch (e) {
-    return { ok: false, connections: [], error: "Could not read the connections" }
-  }
-  if (!data || !data.connections) {
-    var msg = data && data.errors && data.errors[0] && data.errors[0].message
-    return { ok: false, connections: [], error: msg ? String(msg) : "No connections found" }
-  }
-
+  try { data = typeof raw === "string" ? JSON.parse(raw) : raw }
+  catch (e) { return { ok: false, connections: [], error: "Could not read the connections" } }
+  var journeys = data && data.journeys
+  if (!journeys) return { ok: false, connections: [], error: errorMessage(data, "No connections found") }
   var out = []
-  for (var i = 0; i < data.connections.length; i++) {
-    var c = data.connections[i]
-    if (!c || !c.from || !c.to) continue
-    var dep = parseInt(c.from.departureTimestamp, 10)
-    var arr = parseInt(c.to.arrivalTimestamp, 10)
-    var mins = durationMinutes(c.duration)
-    var transfers = parseInt(c.transfers, 10) || 0
-    var prognosed = c.from.prognosis ? trim(c.from.prognosis.platform) : ""
-    out.push({
-      id: dep + ":" + i,
-      depTs: dep,
-      depTime: clock(dep),
-      arrTime: clock(arr),
-      duration: formatDuration(mins !== null ? mins : Math.round((arr - dep) / 60)),
-      changes: transfers === 0 ? "direct" : transfers + (transfers === 1 ? " change" : " changes"),
-      lines: sectionLines(c),
-      legs: sectionLegs(c),
-      fromName: stopName(c.from),
-      toName: stopName(c.to),
-      platform: prognosed || trim(c.from.platform),
-      delay: delayOf(c.from),
-      cancelled: isCancelled(c.from)
-    })
+  for (var i = 0; i < journeys.length; i++) {
+    var c = journeys[i], legs = c && c.legs || []
+    if (!legs.length) continue
+    var first = legs[0], last = legs[legs.length - 1]
+    var dep = isoToSeconds(first.plannedDeparture || first.departure)
+    var arr = isoToSeconds(last.plannedArrival || last.arrival)
+    if (dep === null || arr === null) continue
+    var rides = 0
+    for (var n = 0; n < legs.length; n++) if (legs[n].line && !legs[n].walking) rides++
+    var transfers = Math.max(0, rides - 1)
+    out.push({ id: trim(c.refreshToken) || dep + ":" + i, depTs: dep, depTime: clock(dep), arrTime: clock(arr),
+      duration: formatDuration(Math.round((arr - dep) / 60)), changes: transfers === 0 ? "direct" : transfers + (transfers === 1 ? " change" : " changes"),
+      lines: sectionLines(c), legs: sectionLegs(c), fromName: stopName(first.origin), toName: stopName(last.destination),
+      platform: trim(first.departurePlatform || first.plannedDeparturePlatform), delay: delayOf(first),
+      cancelled: isCancelled(c) || isCancelled(first) })
   }
   return { ok: true, connections: out, error: out.length ? "" : "No connections found" }
 }
@@ -473,19 +409,16 @@ function connectionDepartures(connections, destination) {
 function parseStations(raw) {
   try {
     var data = typeof raw === "string" ? JSON.parse(raw) : raw
-    var list = (data && (data.stations || data.stops)) || []
-    var seen = {}
-    var out = []
+    var list = Array.isArray(data) ? data : ((data && (data.locations || data.stops)) || [])
+    var seen = {}, out = []
     for (var i = 0; i < list.length && out.length < 6; i++) {
-      var name = list[i] && list[i].name ? String(list[i].name) : ""
-      if (!name || seen[name]) continue
-      seen[name] = true
-      out.push(name)
+      if (!list[i] || (list[i].type && list[i].type !== "stop" && list[i].type !== "station")) continue
+      var name = list[i].name ? String(list[i].name) : "", key = foldKey(name)
+      if (!name || seen[key]) continue
+      seen[key] = true; out.push(name)
     }
     return out
-  } catch (e) {
-    return []
-  }
+  } catch (e) { return [] }
 }
 
 // "Zürich HB > Luzern; Bern > Thun" → [{from, to}, ...]
@@ -579,9 +512,9 @@ function swapRouteQuery(text, home) {
 // ---- Global shortcuts ------------------------------------------------------
 // The plugin registers its own Hyprland shortcuts at runtime (hyprctl eval),
 // skipping any key that something else already uses. Bindings it makes are
-// described "SBB: …" so they can be told apart and cleaned up later.
+// described "DB: …" so they can be told apart and cleaned up later.
 
-var SHORTCUT_PREFIX = "SBB: "
+var SHORTCUT_PREFIX = "DB: "
 
 var MODMASK = { SUPER: 64, WIN: 64, LOGO: 64, MOD4: 64, ALT: 8, MOD1: 8, CTRL: 4, CONTROL: 4, SHIFT: 1 }
 var MOD_ORDER = [["SUPER", 64], ["CTRL", 4], ["ALT", 8], ["SHIFT", 1]]
@@ -658,10 +591,11 @@ function parsePlainBinds(text) {
   return out
 }
 
-// SBB bindings, whether the plugin made them or the user wrote them by hand
+// DB bindings, plus legacy SBB bindings, whether the plugin made them or the user wrote them by hand
 // from an older README, count as ours: the plugin may replace them.
 function isOwnBind(bind) {
-  return String(bind.description || "").indexOf("SBB") === 0
+  var description = String(bind.description || "")
+  return description.indexOf("DB") === 0 || description.indexOf("SBB") === 0
 }
 
 // The shortcuts the plugin wants. `cfg`: board, search, favourites (the
@@ -715,7 +649,7 @@ function planShortcuts(binds, specs) {
   var stale = []
   for (var s = 0; s < list.length; s++) {
     var b = list[s]
-    if (String(b.description || "").indexOf(SHORTCUT_PREFIX) !== 0) continue
+    if (!isOwnBind(b)) continue
     var kept = false
     for (var k = 0; k < bind.length; k++) {
       if (bindHitsKey(b, bind[k])) { kept = true; break }
