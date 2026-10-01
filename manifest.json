@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "vvkycodevv.sbb",
-  "name": "SBB",
+  "id": "vvkycodevv.db",
+  "name": "Deutsche Bahn",
   "version": "1.0.0",
   "author": "vvkycodevv",
   "license": "MIT",
-  "description": "Next Swiss train in the Omarchy bar, a live departure board, and route search. Data from transport.opendata.ch.",
+  "description": "German train departures, live platforms, and route search in the Omarchy bar. Data from transport.rest.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,20 +13,19 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "SBB",
+    "displayName": "Deutsche Bahn",
     "description": "Next departure from your home station or along a chosen route, with a departures board and route search in the panel.",
     "category": "Info",
     "aliases": [
-      "sbb",
+      "db",
+      "bahn",
       "train",
-      "cff",
-      "ffs",
       "timetable"
     ],
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "homeStation": "Zürich HB",
+      "homeStation": "Berlin Hbf",
       "barMode": "Home station",
       "barRoute": "",
       "barDestination": "",
@@ -49,8 +48,8 @@
         "key": "homeStation",
         "type": "string",
         "label": "Home station",
-        "defaultValue": "Zürich HB",
-        "description": "Station shown on the departure board and followed by the bar. Also the start of a route that names only a destination."
+        "defaultValue": "Berlin Hbf",
+        "description": "German station shown on the departure board and followed by the bar. Also the start of a route that names only a destination."
       },
       {
         "key": "barMode",
@@ -68,14 +67,14 @@
         "type": "string",
         "label": "Followed route",
         "defaultValue": "",
-        "description": "From > To, e.g. Bern > Thun. Just Thun starts at the home station. Used when the bar follows a route."
+        "description": "From > To, e.g. Berlin Hbf > Leipzig Hbf. Just Thun starts at the home station. Used when the bar follows a route."
       },
       {
         "key": "barDestination",
         "type": "string",
         "label": "Only trains towards",
         "defaultValue": "",
-        "description": "Optional. The bar shows the next train from the home station that stops here, e.g. Luzern. Not used when following a route."
+        "description": "Optional. The bar shows the next train from the home station that stops here, e.g. Leipzig Hbf. Not used when following a route."
       },
       {
         "key": "barStyle",
@@ -86,7 +85,7 @@
           "Compact"
         ],
         "defaultValue": "Full",
-        "description": "Full: IR 70 → Luzern 16:42 · +4'. Compact: 16:42 · +4'."
+        "description": "Full: ICE 507 → Leipzig Hbf 16:42 · +4'. Compact: 16:42 · +4'."
       },
       {
         "key": "showInBar",
@@ -159,7 +158,7 @@
         "type": "string",
         "label": "Favourite routes",
         "defaultValue": "",
-        "description": "From > To, separated by semicolons, e.g. Bern > Thun. Numbered 1 to 9: ctrl 1-9 in the route search, and a global shortcut each (see favouriteShortcut). Add the current route with ctrl s."
+        "description": "From > To, separated by semicolons, e.g. Berlin Hbf > Leipzig Hbf. Numbered 1 to 9: ctrl 1-9 in the route search, and a global shortcut each (see favouriteShortcut). Add the current route with ctrl s."
       },
       {
         "key": "shortcuts",

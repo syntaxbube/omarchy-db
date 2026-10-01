@@ -12,15 +12,15 @@ import "Palette.js" as Palette
 // five views of the popup, following the Figma template:
 //   board       departures board (Window / Departures)
 //   detail      one departure: times, platform, stops
-//   route       one line route search (Walker / SBB route search)
+//   route       one line route search (Walker / DB route search)
 //   connection  one connection: every ride and walk
-//   settings    SBB settings (Window / Settings)
+//   settings    DB settings (Window / Settings)
 // Loaded by BarWidget.qml, which injects bar, settings, anchorItem and
 // hostWidget.
 Panel {
   id: root
-  moduleName: "vvkycodevv.sbb"
-  ipcTarget: "vvkycodevv.sbb"
+  moduleName: "vvkycodevv.db"
+  ipcTarget: "vvkycodevv.db"
   manageIpc: false
 
   property var anchorItem: null
@@ -29,12 +29,12 @@ Panel {
 
   // ---- Settings (inline on the shell.json entry, see manifest schema) -----
 
-  readonly property string homeStation: String(setting("homeStation", "Zürich HB")).trim() || "Zürich HB"
+  readonly property string homeStation: String(setting("homeStation", "Berlin Hbf")).trim() || "Berlin Hbf"
   readonly property string barDestination: String(setting("barDestination", "")).trim()
   readonly property bool compactBar: setting("barStyle", "Full") === "Compact"
   readonly property bool showInBar: String(setting("showInBar", true)) !== "false"
   // "Route": the bar and the board follow the next connections of barRoute
-  // ("Bern > Thun", or just "Thun" to start at the home station) instead of
+  // ("Berlin Hbf > Leipzig Hbf", or just "Thun" to start at the home station) instead of
   // every departure from the home station.
   readonly property bool followRoute: setting("barMode", "Home station") === "Route"
   readonly property string barRoute: String(setting("barRoute", "")).trim()
@@ -72,7 +72,7 @@ Panel {
   // could lose one of them.
   function saveSettings(pairs) {
     var script = ""
-    var args = ["sh", "-c", "", "sbb-settings", root.moduleName]
+    var args = ["sh", "-c", "", "db-settings", root.moduleName]
     for (var i = 0; i < pairs.length; i++) {
       var json = typeof pairs[i][1] !== "string"
       args.push(pairs[i][0], json ? JSON.stringify(pairs[i][1]) : pairs[i][1])
@@ -153,7 +153,7 @@ Panel {
     ? Model.formatRoute(routeFromName || followedRoute.from, routeToName || followedRoute.to)
     : (stationName || homeStation)
   readonly property string tooltip: {
-    if (boardError !== "") return "SBB: " + boardError
+    if (boardError !== "") return "DB: " + boardError
     var where = barDeparture && barDeparture.platform ? " · platform " + barDeparture.platform : ""
     if (routeMode && barDeparture) where += " · arrives " + barDeparture.arrTime + " · " + barDeparture.changes
     return boardTitle + where
@@ -186,7 +186,7 @@ Panel {
 
   // Uninstall cleanup. The shortcuts live in Hyprland, not in any file, so
   // removing the plugin (or taking the widget off the bar) would leave them
-  // bound. A few seconds after this bar goes away, if no SBB panel answers
+  // bound. A few seconds after this bar goes away, if no DB panel answers
   // any more, they are unbound. A shell restart or an unplugged monitor
   // leaves another panel answering (or a fresh one re-registers), so those
   // keep their shortcuts.
@@ -195,7 +195,7 @@ Panel {
     if (lua === "") return
     Quickshell.execDetached(["sh", "-c",
       'sleep 3; omarchy-shell "$1" alive >/dev/null 2>&1 || hyprctl eval "$2" >/dev/null 2>&1',
-      "sbb-cleanup", root.moduleName, lua])
+      "db-cleanup", root.moduleName, lua])
   }
 
   function syncShortcuts() {
@@ -247,7 +247,7 @@ Panel {
       problems.push("\"" + plan.invalid[j].keys + "\" is not a key combination")
     // Once per shell session for the same set of problems, not on every reload.
     if (problems.length > 0 && Shared.claim("shortcuts:" + problems.join("|")))
-      Quickshell.execDetached(["notify-send", "-a", "SBB", "-i", "train", "SBB: some shortcuts were skipped",
+      Quickshell.execDetached(["notify-send", "-a", "DB", "-i", "train", "DB: some shortcuts were skipped",
         problems.join("\n") + "\nChange them in the plugin settings (shell.json)."])
   }
 
@@ -455,7 +455,7 @@ Panel {
   function checkAlert() {
     var alert = Model.alertFor(barDeparture, delayAlertMinutes, Shared.sent)
     if (!alert || !Shared.claim(alert.key)) return
-    Quickshell.execDetached(["notify-send", "-a", "SBB", "-i", "train", alert.title, alert.body])
+    Quickshell.execDetached(["notify-send", "-a", "DB", "-i", "train", alert.title, alert.body])
   }
 
   Process {
@@ -621,7 +621,7 @@ Panel {
     var q = Model.parseRouteQuery(queryField.text, homeStation)
     var from = q.from || routeFrom
     var to = q.to || routeTo
-    // Prefer the timetable's spelling ("Luzern") over what was typed
+    // Prefer the timetable's spelling ("Leipzig Hbf") over what was typed
     // ("luzern") when the query is the route on screen.
     var shown = detailConnection || connections[0]
     if (shown && Model.foldKey(from) === Model.foldKey(routeFrom) && Model.foldKey(to) === Model.foldKey(routeTo)) {
@@ -813,7 +813,7 @@ Panel {
     }
   }
 
-  // Stored as "From > To" like the favourites; a bare "Thun" starts at the
+  // Stored as "From > To" like the favourites; a bare "Leipzig Hbf" starts at the
   // home station. Saving a route also switches the bar to it.
   function commitRoute(text) {
     var q = Model.parseRouteQuery(text, homeStation)
@@ -1743,7 +1743,7 @@ Panel {
         width: parent.width
         spacing: 0
 
-        // Search input: "sbb" chip, the query, the "now ▾" picker.
+        // Search input: "db" chip, the query, the "now ▾" picker.
         Item {
           id: searchBar
           z: 2
@@ -1763,7 +1763,7 @@ Panel {
             Text {
               id: prefixText
               anchors.centerIn: parent
-              text: "sbb"
+              text: "db"
               textFormat: Text.PlainText
               color: root.railBadges ? "#ffffff" : root.fg
               font.family: root.fontFamily
@@ -2353,7 +2353,7 @@ Panel {
         width: parent.width
         spacing: Style.space(2)
 
-        // Header: train icon + "SBB settings"
+        // Header: train icon + "DB settings"
         Row {
           x: Style.space(12)
           height: settingsTitle.implicitHeight + Style.space(20)
@@ -2379,7 +2379,7 @@ Panel {
           Text {
             id: settingsTitle
             anchors.verticalCenter: parent.verticalCenter
-            text: "SBB settings"
+            text: "DB settings"
             textFormat: Text.PlainText
             color: root.fg
             font.family: root.fontFamily
@@ -2421,7 +2421,7 @@ Panel {
         }
 
         SettingRow {
-          label: "Route"; description: "from > to, e.g. Bern > Thun"
+          label: "Route"; description: "from > to, e.g. Berlin Hbf > Leipzig Hbf"
           current: root.settingsCursor === 2
           fg: root.fg; dim: root.dim; highlight: root.rowHighlight; fontFamily: root.fontFamily
           onActivated: root.activateSetting(2)

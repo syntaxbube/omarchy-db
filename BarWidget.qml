@@ -10,11 +10,11 @@ import "Palette.js" as Palette
 // summon / hide / toggle routing works on this widget's id.
 //
 // With the "Figma" palette the departure is drawn as the pill from the
-// template (Waybar / SBB Module): dark surface, rail red icon, blue line,
+// template (Waybar / DB Module): dark surface, rail red icon, blue line,
 // status dot. With "Theme" it is plain bar text like the built-in widgets.
 BarWidget {
   id: root
-  moduleName: "vvkycodevv.sbb"
+  moduleName: "vvkycodevv.db"
 
   // nf-md-train
   readonly property string trainGlyph: "󰔬"
@@ -114,7 +114,7 @@ BarWidget {
     // Theme mode: late or cancelled trains take the bar's alert colour.
     active: !root.pillMode && root.showDeparture && (root.panelBroken || (root.panelItem ? root.panelItem.barAlert === true : false))
     tooltipText: root.panelBroken
-      ? "SBB: Panel.qml failed to load, see qs log"
+      ? "DB: Panel.qml failed to load, see qs log"
       : (root.panelItem && !root.opened ? root.panelItem.tooltip : "")
 
     onPressed: function(buttonCode) {
@@ -164,7 +164,7 @@ BarWidget {
           }
         }
 
-        // Line, e.g. IR 70
+        // Line, e.g. ICE 507
         Text {
           visible: root.showDeparture && root.dep !== null && !root.compact
           anchors.verticalCenter: parent.verticalCenter
@@ -176,7 +176,7 @@ BarWidget {
           font.bold: true
         }
 
-        // → Luzern
+        // → Leipzig Hbf
         Text {
           visible: root.showDeparture && root.dep !== null && !root.compact
           anchors.verticalCenter: parent.verticalCenter
@@ -204,7 +204,7 @@ BarWidget {
         Text {
           visible: root.showDeparture && root.dep === null
           anchors.verticalCenter: parent.verticalCenter
-          text: "SBB"
+          text: "DB"
           textFormat: Text.PlainText
           color: Palette.subtle
           font.family: root.bar ? root.bar.fontFamily : Style.font.family

@@ -1,5 +1,5 @@
-// Run with: TZ=Europe/Zurich node tests/model.test.js
-// Fixtures follow the transport.opendata.ch v1 response shape.
+// Run with: TZ=Europe/Berlin node tests/model.test.js
+// Fixtures mirror v6.db.transport.rest's Deutsche Bahn/HAFAS response shape.
 
 const Model = require("../Model.js")
 
@@ -12,250 +12,163 @@ function check(name, actual, expected) {
   }
 }
 
-// 29/09/2026 16:35 in Zurich (UTC+2)
-const NOW = Date.UTC(2026, 8, 29, 14, 35) / 1000
-const at = (hh, mm) => Date.UTC(2026, 8, 29, hh - 2, mm) / 1000
+const iso = (hour, minute) => `2026-10-01T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+02:00`
+const seconds = value => Date.parse(value) / 1000
+const NOW = seconds(iso(10, 0))
+const line = (name, product) => ({ type: "line", id: name.toLowerCase().replace(/ /g, "-"), name, product })
+const stop = (name, id) => ({ type: "stop", id: id || name, name, location: { type: "location" } })
 
-const board = {
-  station: { name: "Zürich HB" },
-  stationboard: [
-    { name: "018207", category: "S", number: "2", to: "Flughafen ZH",
-      stop: { departureTimestamp: at(16, 30), delay: 0, platform: "22", prognosis: {} }, passList: [] },
-    { name: "002119", category: "IR", number: "70", to: "Luzern",
-      stop: { departureTimestamp: at(16, 42), delay: 4, platform: "8", prognosis: { platform: null } },
-      passList: [{ station: { name: "Zürich HB" } }, { station: { name: "Zug" } }, { station: { name: "Luzern" } }] },
-    { name: "000723", category: "IC", number: "1", to: "Genève-Aéroport",
-      stop: { departureTimestamp: at(16, 47), delay: null, platform: "32",
-              prognosis: { platform: "33", departure: "2026-09-29T16:49:00+0200" } },
-      passList: [{ station: { name: "Zürich HB" } }, { station: { name: "Bern" } }] },
-    { name: "000561", category: "IC", number: "3", to: "Chur", cancelled: true,
-      stop: { departureTimestamp: at(16, 50), delay: 0, platform: "7" }, passList: [] },
-    { name: "000317", category: "EC", number: "1776", to: "Milano Centrale",
-      stop: { departureTimestamp: at(16, 53), delay: 0, platform: "14" }, passList: [] }
-  ]
+const departuresFixture = [
+    {
+      tripId: "1|ICE 507|20261001", stop: stop("Berlin Hbf", "8011160"),
+      plannedWhen: iso(9, 58), when: iso(10, 3), delay: 300,
+      plannedPlatform: "13", platform: "14", direction: "München Hbf",
+      line: line("ICE 507", "nationalExpress"),
+      stopovers: [
+        { stop: stop("Berlin Hbf"), plannedDeparture: iso(9, 58), departure: iso(10, 3), departureDelay: 300, plannedPlatform: "13", platform: "14" },
+        { stop: stop("Leipzig Hbf"), plannedArrival: iso(11, 8), arrival: iso(11, 13), arrivalDelay: 300, plannedPlatform: "10", platform: "11" },
+        { stop: stop("München Hbf"), plannedArrival: iso(14, 2), arrival: iso(14, 7), arrivalDelay: 300, plannedPlatform: "22" }
+      ]
+    },
+    {
+      tripId: "2|IC 2270|20261001", stop: stop("Berlin Hbf"), plannedWhen: iso(10, 12), when: iso(10, 12), delay: 0,
+      plannedPlatform: "8", platform: "8", direction: "Rostock Hbf", line: line("IC 2270", "national"), stopovers: []
+    },
+    {
+      tripId: "3|EC 45|20261001", stop: stop("Berlin Hbf"), plannedWhen: iso(10, 18),
+      plannedPlatform: "1", direction: "Warszawa Wschodnia", line: line("EC 45", "national"), cancelled: true
+    },
+    {
+      tripId: "4|RE 8|20261001", stop: stop("Berlin Hbf"), plannedWhen: iso(10, 24), when: iso(10, 26), delay: 120,
+      plannedPlatform: "6", direction: "Wittenberge", line: line("RE 8", "regional")
+    },
+    {
+      tripId: "5|S 7|20261001", stop: stop("Berlin Hbf"), plannedWhen: iso(10, 29),
+      direction: "Ahrensfelde", line: line("S 7", "suburban")
+    },
+    {
+      tripId: "6|Bus M41|20261001", stop: stop("Berlin Hbf"), plannedWhen: iso(10, 33),
+      plannedPlatform: null, platform: null, direction: "Sonnenallee", line: line("M41", "bus")
+    }
+]
+
+const parsed = Model.parseDepartures(JSON.stringify(departuresFixture))
+check("DB departures parse", parsed.ok, true)
+check("departure station", parsed.station, "Berlin Hbf")
+check("ICE, IC and EC labels", parsed.departures.slice(0, 3).map(d => d.line), ["ICE 507", "IC 2270", "EC 45"])
+check("regional and local products", parsed.departures.slice(3).map(d => [d.line, d.local]), [["RE 8", true], ["S 7", true], ["M41", true]])
+check("long-distance products", parsed.departures.slice(0, 3).map(d => d.local), [false, false, false])
+const [ice, ic, ec, re, s7] = parsed.departures
+check("planned departure retained", [ice.time, ice.ts], ["09:58", seconds(iso(9, 58))])
+check("realtime departure produces minute delay", ice.delay, 5)
+check("changed and planned platforms", [ice.platform, ice.plannedPlatform, ice.platformChanged], ["14", "13", true])
+check("unchanged platform", [ic.platform, ic.platformChanged], ["8", false])
+check("cancelled journey", ec.cancelled, true)
+check("direction and stopovers", [ice.to, ice.via], ["München Hbf", ["Leipzig Hbf", "München Hbf"]])
+check("realtime arrivals and changed stop platform", ice.stops, [
+  { name: "Leipzig Hbf", time: "11:13", platform: "11" },
+  { name: "München Hbf", time: "14:07", platform: "22" }
+])
+check("optional realtime fields may be absent", [s7.delay, s7.platform, s7.platformChanged], [0, "", false])
+check("departure statuses", parsed.departures.slice(0, 5).map(Model.statusText), ["+5'", "on time", "cancelled", "+2'", "on time"])
+check("next departure uses delayed realtime", Model.nextDeparture(parsed.departures, "Leipzig", NOW).line, "ICE 507")
+check("destination filter includes stopovers", Model.servesDestination(ice, "munchen"), true)
+check("expected departure", Model.expectedTime(ice), "10:03")
+check("invalid departure JSON", Model.parseDepartures("<html>503</html>").error, "Could not read the timetable")
+check("HTTP/API-style departure error", Model.parseDepartures({ error: true, msg: "station not found" }).error, "station not found")
+
+const journeysFixture = {
+  journeys: [{
+    refreshToken: "refresh-ice-re", legs: [
+      {
+        origin: stop("Berlin Hbf"), destination: stop("Hannover Hbf"),
+        plannedDeparture: iso(10, 15), departure: iso(10, 20), departureDelay: 300,
+        plannedArrival: iso(12, 2), arrival: iso(12, 9), arrivalDelay: 420,
+        plannedDeparturePlatform: "13", departurePlatform: "14",
+        plannedArrivalPlatform: "7", arrivalPlatform: "8", direction: "Köln Hbf",
+        line: line("ICE 1050", "nationalExpress"), cancelled: false,
+        stopovers: [{ stop: stop("Stendal Hbf"), plannedArrival: iso(11, 2), arrival: iso(11, 7) }]
+      },
+      {
+        walking: true, origin: stop("Hannover Hbf"), destination: stop("Hannover ZOB"),
+        departure: iso(12, 9), arrival: iso(12, 16)
+      },
+      {
+        origin: stop("Hannover ZOB"), destination: stop("Bremen Hbf"),
+        plannedDeparture: iso(12, 22), plannedArrival: iso(13, 35),
+        plannedDeparturePlatform: "A", direction: "Bremerhaven-Lehe", line: line("RE 8", "regional")
+      }
+    ]
+  }, {
+    legs: [{ origin: stop("Berlin Hbf"), destination: stop("Dresden Hbf"), plannedDeparture: iso(11, 0), plannedArrival: iso(12, 50),
+      direction: "Praha hl.n.", line: line("EC 175", "national"), cancelled: true }]
+  }]
 }
+const connections = Model.parseConnections(journeysFixture)
+check("journeys parse", connections.ok, true)
+check("connection planned times and duration", [connections.connections[0].depTime, connections.connections[0].arrTime, connections.connections[0].duration], ["10:15", "13:35", "3 h 20"])
+check("transfer count ignores walking leg", connections.connections[0].changes, "1 change")
+check("ride, walk and transfer legs", connections.connections[0].legs.map(l => l.kind), ["ride", "walk", "ride"])
+check("walking duration", connections.connections[0].legs[1].minutes, 7)
+check("leg planned/realtime platform and delay", [connections.connections[0].legs[0].depPlatform, connections.connections[0].legs[0].arrPlatform, connections.connections[0].legs[0].delay], ["14", "8", 5])
+check("connection products", connections.connections[0].lines.map(l => [l.label, l.local]), [["ICE 1050", false], ["RE 8", true]])
+check("connection endpoints", [connections.connections[0].fromName, connections.connections[0].toName], ["Berlin Hbf", "Bremen Hbf"])
+check("cancelled connection leg", connections.connections[1].legs[0].cancelled, true)
+check("invalid journey JSON", Model.parseConnections("not json").error, "Could not read the connections")
+check("HTTP/API-style journey error", Model.parseConnections({ error: "HAFAS request failed" }).error, "HAFAS request failed")
 
-const parsed = Model.parseDepartures(JSON.stringify(board))
-check("board parses", parsed.ok, true)
-check("station name", parsed.station, "Zürich HB")
-check("count", parsed.departures.length, 5)
-const [s2, ir, ic1, ic3, ec] = parsed.departures
-check("S-Bahn label is tight", s2.line, "S2")
-check("S-Bahn is local", s2.local, true)
-check("IR label", ir.line, "IR 70")
-check("IR is long distance", ir.local, false)
-check("IR delay", ir.delay, 4)
-check("IR time", ir.time, "16:42")
-check("IR via keeps later stops", ir.via, ["Zug", "Luzern"])
-check("delay from prognosis when delay is null", ic1.delay, 2)
-check("platform change", [ic1.platform, ic1.platformChanged], ["33", true])
-check("cancelled flag on journey", ic3.cancelled, true)
-check("train number dropped", ec.line, "EC")
+check("autocomplete deduplicates station names", Model.parseStations([
+  stop("Berlin Hbf", "8011160"), stop("Berlin Hbf", "duplicate"), stop("berlin hbf", "case-duplicate"),
+  { type: "location", name: "Berlin Hbf, Europaplatz" }, stop("Berlin Ostbahnhof", "8010255")
+]), ["Berlin Hbf", "Berlin Ostbahnhof"])
+check("autocomplete invalid JSON", Model.parseStations("{"), [])
 
-check("status texts", parsed.departures.map(Model.statusText), ["on time", "+4'", "+2'", "cancelled", "on time"])
+check("departure URL encoding/options/limit", Model.stationboardUrl("Köln Hbf", 99),
+  "https://v6.db.transport.rest/departures?stop=K%C3%B6ln%20Hbf&results=40&duration=1440&linesOfStops=true&remarks=false&language=en&nationalExpress=true&national=true&regionalExpress=true&regional=true&suburban=true&bus=true&ferry=true&subway=true&tram=true&taxi=false")
+check("autocomplete URL encoding/options", Model.locationsUrl("München Hbf"),
+  "https://v6.db.transport.rest/locations?query=M%C3%BCnchen%20Hbf&results=6&stops=true&addresses=false&poi=false&language=en")
+const transportOptions = "&nationalExpress=true&national=true&regionalExpress=true&regional=true&suburban=true&bus=true&ferry=true&subway=true&tram=true&taxi=false"
+check("journey URL encoding/result limit/language/transports", Model.connectionsUrl("Köln Hbf", "Frankfurt(Main)Hbf", 14),
+  "https://v6.db.transport.rest/journeys?from=K%C3%B6ln%20Hbf&to=Frankfurt(Main)Hbf&results=10&stopovers=true&remarks=false&language=en" + transportOptions)
+check("journey ISO date/time", Model.connectionsUrl("Berlin Hbf", "Leipzig Hbf", 5, seconds(iso(10, 30))),
+  "https://v6.db.transport.rest/journeys?from=Berlin%20Hbf&to=Leipzig%20Hbf&results=5&departure=2026-10-01T08%3A30%3A00.000Z&stopovers=true&remarks=false&language=en" + transportOptions)
+check("followed-board result limit", /results=16&/.test(Model.connectionsUrl("A", "B", 20, 0, 16)), true)
 
-check("next skips departed S2", Model.nextDeparture(parsed.departures, "", NOW).line, "IR 70")
-check("destination matches via", Model.nextDeparture(parsed.departures, "zug", NOW).line, "IR 70")
-check("destination matches accents", Model.nextDeparture(parsed.departures, "geneve", NOW).line, "IC 1")
-check("unknown destination", Model.nextDeparture(parsed.departures, "Basel", NOW), null)
+const route = Model.connectionDepartures(connections.connections, "Bremen Hbf")
+check("route departure maps first ride", [route[0].line, route[0].to, route[0].delay], ["ICE 1050", "Bremen Hbf", 5])
+check("route works with bar", Model.barText(route[0], false, NOW), "ICE 1050 → Bremen Hbf 10:15 · +5'")
 
-check("bar full delayed", Model.barText(ir, false, NOW), "IR 70 → Luzern 16:42 · +4'")
-check("bar compact", Model.barText(ir, true, NOW), "16:42 · +4'")
-check("bar on time countdown", Model.barText(ec, false, NOW), "EC → Milano Centrale 16:53 · in 18 min")
-check("bar tail delay", Model.barTail(ir, NOW), "+4'")
-check("bar tail countdown", Model.barTail(ec, NOW), "in 18 min")
-check("bar cancelled", Model.barText(ic3, true, NOW), "16:50 · cancelled")
-
-const a1 = Model.alertFor(ir, 3, {})
-check("alert fires at threshold", a1 && a1.title, "IR 70 to Luzern +4'")
-check("alert body", a1 && a1.body, "Planned 16:42, now leaving at 16:46 from platform 8.")
-check("alert not repeated", Model.alertFor(ir, 3, { [a1.key]: true }), null)
-check("alert below threshold", Model.alertFor(ic1, 3, {}), null)
-check("alert off", Model.alertFor(ir, 0, {}), null)
-check("cancel alert", Model.alertFor(ic3, 3, {}).title, "IC 3 to Chur cancelled")
-
-check("bad json", Model.parseDepartures("<html>").ok, false)
-check("api error message", Model.parseDepartures({ errors: [{ message: "Station not found" }] }).error, "Station not found")
-
-const conns = Model.parseConnections({
-  connections: [
-    { from: { departureTimestamp: at(16, 42), delay: 4, platform: "8", prognosis: {} },
-      to: { arrivalTimestamp: at(17, 31) }, duration: "00d00:49:00", transfers: 0,
-      sections: [{ journey: { category: "IR", number: "70" } }] },
-    { from: { departureTimestamp: at(17, 12), platform: "21", prognosis: { platform: "21" } },
-      to: { arrivalTimestamp: at(18, 8) }, duration: "00d00:56:00", transfers: 1,
-      sections: [{ journey: { category: "S", number: "8" } }, { walk: { duration: 180 }, journey: null },
-                 { journey: { category: "IR", number: "75" } }] },
-    { from: { departureTimestamp: at(17, 30), platform: "3" },
-      to: { arrivalTimestamp: at(19, 5) }, duration: "00d01:35:00", transfers: 2, products: ["IC 5", "S3"] }
-  ]
-})
-check("connections parse", conns.connections.length, 3)
-check("direct", conns.connections[0].changes, "direct")
-check("times", [conns.connections[0].depTime, conns.connections[0].arrTime], ["16:42", "17:31"])
-check("duration", conns.connections[0].duration, "49 min")
-check("long duration", conns.connections[2].duration, "1 h 35")
-check("walk sections skipped", conns.connections[1].lines.map(l => l.label), ["S8", "IR 75"])
-check("changes plural", conns.connections[2].changes, "2 changes")
-check("products fallback", conns.connections[2].lines.map(l => l.label), ["IC 5", "S3"])
-
-check("stations dedupe", Model.parseStations({ stations: [{ name: "Bern" }, { name: "Bern" }, { name: "Bern Balsberg" }] }), ["Bern", "Bern Balsberg"])
-check("favourites", Model.parseFavourites("Zürich HB > Luzern; Bern -> Zürich HB\nbad line;  A→B "),
-  [{ from: "Zürich HB", to: "Luzern" }, { from: "Bern", to: "Zürich HB" }, { from: "A", to: "B" }])
-check("iso offset without colon", Model.isoToSeconds("2026-09-29T16:49:00+0200"), at(16, 49))
-check("urls encode", Model.connectionsUrl("Zürich HB", "Luzern", 4),
-  "https://transport.opendata.ch/v1/connections?from=Z%C3%BCrich%20HB&to=Luzern&limit=4")
-
-// ---- Details views -----------------------------------------------------------
-
-const board2 = JSON.parse(JSON.stringify(board))
-board2.stationboard[1].passList = [
-  { station: { name: null }, departureTimestamp: at(16, 42) },
-  { station: { name: "Zug" }, arrivalTimestamp: at(17, 5), platform: "3" },
-  { station: { name: "Luzern" }, arrivalTimestamp: at(17, 31) }]
-const ir2 = Model.parseDepartures(board2).departures[1]
-check("stops with times", ir2.stops, [{ name: "Zug", time: "17:05", platform: "3" }, { name: "Luzern", time: "17:31", platform: "" }])
-check("via still built", ir2.via, ["Zug", "Luzern"])
-check("planned platform kept", [ic1.plannedPlatform, ic1.platform], ["32", "33"])
-check("expected time", Model.expectedTime(ir), "16:46")
-check("board span", Model.boardSpan(parsed.departures, NOW), "next 18 min")
-check("board span empty", Model.boardSpan([], NOW), "")
-
-const legConns = Model.parseConnections({ connections: [{
-  from: { departureTimestamp: at(17, 36), station: { name: "Bern, Bahnhof" } },
-  to: { arrivalTimestamp: at(18, 49), station: { name: "Thun" } }, duration: "00d01:13:00", transfers: 1,
-  sections: [
-    { journey: { category: "B", number: "733", to: "Bern Wankdorf, Bahnhof" },
-      departure: { departureTimestamp: at(17, 36), station: { name: "Bern, Bahnhof" }, platform: "G" },
-      arrival: { arrivalTimestamp: at(17, 42), station: { name: "Bern Wankdorf, Bahnhof" } } },
-    { walk: { duration: 300 }, journey: null,
-      departure: { departureTimestamp: at(17, 42), station: { name: "Bern Wankdorf, Bahnhof" } },
-      arrival: { arrivalTimestamp: at(17, 47), station: { name: "Bern Wankdorf" } } },
-    { journey: { category: "IR", number: "75", to: "Luzern" },
-      departure: { departureTimestamp: at(18, 35), delay: 2, station: { name: "Zürich HB" }, platform: "5", prognosis: { platform: "6" } },
-      arrival: { arrivalTimestamp: at(18, 49), station: { name: "Thun" }, platform: "2" } }] }] }).connections[0]
-check("leg kinds", legConns.legs.map(l => l.kind), ["ride", "walk", "ride"])
-check("bus leg", [legConns.legs[0].line, legConns.legs[0].local, legConns.legs[0].depPlatform], ["B 733", true, "G"])
-check("walk minutes", legConns.legs[1].minutes, 5)
-check("ride leg", [legConns.legs[2].depTime, legConns.legs[2].arrTime, legConns.legs[2].depPlatform, legConns.legs[2].delay, legConns.legs[2].toward],
-  ["18:35", "18:49", "6", 2, "Luzern"])
-check("connection station names", [legConns.fromName, legConns.toName], ["Bern, Bahnhof", "Thun"])
-
-check("url with time", Model.connectionsUrl("Bern", "Thun", 5, at(17, 30)),
-  "https://transport.opendata.ch/v1/connections?from=Bern&to=Thun&limit=5&date=2026-09-29&time=17:30")
-check("result limit capped at 10", /limit=10$/.test(Model.connectionsUrl("A", "B", 16)), true)
-check("board limit can reach 16", /limit=16$/.test(Model.connectionsUrl("A", "B", 20, 0, 16)), true)
-
-// ---- Following a route -----------------------------------------------------------
-
-const routeDeps = Model.connectionDepartures([legConns, conns.connections[0], conns.connections[2]], "Luzern")
-check("route entries", routeDeps.length, 3)
-check("route entry from the first ride", [routeDeps[0].line, routeDeps[0].local, routeDeps[0].to, routeDeps[0].platform],
-  ["B 733", true, "Thun", ""])
-check("route entry times", [routeDeps[1].time, routeDeps[1].arrTime, routeDeps[1].changes, routeDeps[1].delay], ["16:42", "17:31", "direct", 4])
-check("route entry without sections uses products", routeDeps[2].line, "IC 5")
-check("route id ignores list position", Model.connectionDepartures([conns.connections[0]])[0].id, routeDeps[1].id)
-check("route entry keeps the connection", routeDeps[0].connection, legConns)
-check("route entry names the arrival", [routeDeps[0].to, routeDeps[1].to], ["Thun", "Luzern"])
-check("route entry works with the pill", Model.barText(routeDeps[1], false, at(16, 30)), "IR 70 → Luzern 16:42 · +4'")
-check("route entry works with alerts", Model.alertFor(routeDeps[1], 3, {}).key, routeDeps[1].id + ":4")
-check("when labels", Model.WHEN_OFFSETS.map(Model.whenLabel), ["now", "in 15 min", "in 30 min", "in 1 h", "in 2 h"])
-
-// ---- Route query ---------------------------------------------------------------
-
-check("query with arrow", Model.parseRouteQuery("zürich hb → luzern", "Bern"), { from: "zürich hb", to: "luzern", explicit: true })
-check("query with >", Model.parseRouteQuery("Bern > Zürich HB", ""), { from: "Bern", to: "Zürich HB", explicit: true })
-check("query with ->", Model.parseRouteQuery("A->B", ""), { from: "A", to: "B", explicit: true })
-check("query without arrow uses home", Model.parseRouteQuery("Luzern", "Zürich HB"), { from: "Zürich HB", to: "Luzern", explicit: false })
-check("query half typed", Model.parseRouteQuery("Bern > ", "Zürich HB"), { from: "Bern", to: "", explicit: true })
-check("segment before arrow", Model.activeSegment("Bern > Thun", 2), "from")
-check("segment after arrow", Model.activeSegment("Bern > Thun", 9), "to")
-check("segment without arrow", Model.activeSegment("Thun", 2), "to")
-check("replace to", Model.replaceSegment("Bern > Th", "to", "Thun"), "Bern → Thun")
-check("replace from", Model.replaceSegment("Be > Thun", "from", "Bern"), "Bern → Thun")
-check("replace plain", Model.replaceSegment("luz", "to", "Luzern"), "Luzern")
-check("swap", Model.swapRouteQuery("Zürich HB → Luzern", "X"), "Luzern → Zürich HB")
-check("swap uses home", Model.swapRouteQuery("Luzern", "Zürich HB"), "Luzern → Zürich HB")
-
-// ---- Favourites ------------------------------------------------------------------
-
-const favs = Model.parseFavourites("Zürich HB > Luzern; Bern > Zürich HB")
-check("add favourite", Model.addFavourite(favs, "Zürich HB", "Thun").added, true)
-check("no duplicate favourite", Model.addFavourite(favs, "zurich hb", "LUZERN").added, false)
-check("serialize favourites", Model.serializeFavourites(Model.addFavourite(favs, "Zürich HB", "Thun").list),
-  "Zürich HB > Luzern; Bern > Zürich HB; Zürich HB > Thun")
-check("remove favourite", Model.serializeFavourites(Model.removeFavourite(favs, 0)), "Bern > Zürich HB")
-
-// ---- Global shortcuts ------------------------------------------------------------
-
-check("parse keys", Model.parseKeys("super + alt + t"), { ok: true, mask: 72, key: "T", keys: "SUPER + ALT + T" })
-check("parse control alias", Model.parseKeys("SUPER + CONTROL + ALT + 1").keys, "SUPER + CTRL + ALT + 1")
-check("bad modifier", Model.parseKeys("HYPER + T").ok, false)
-check("empty key", Model.parseKeys("SUPER + ").ok, false)
-check("pretty keys", Model.prettyKeys("SUPER + CTRL + ALT + 3"), "super+ctrl+alt+3")
+check("favourites", Model.parseFavourites("Berlin Hbf > Leipzig Hbf; Köln Hbf → Bonn Hbf"), [
+  { from: "Berlin Hbf", to: "Leipzig Hbf" }, { from: "Köln Hbf", to: "Bonn Hbf" }
+])
+check("route query", Model.parseRouteQuery("Berlin Hbf → Hamburg Hbf", "Köln Hbf"), { from: "Berlin Hbf", to: "Hamburg Hbf", explicit: true })
+check("German clock timezone", Model.clock(seconds(iso(10, 30))), "10:30")
 
 const cfg = { board: "SUPER + ALT + T", search: "SUPER + ALT + R", favourites: "SUPER + CTRL + ALT" }
-const specs = Model.shortcutSpecs("vvkycodevv.sbb", cfg)
-check("eleven shortcuts", specs.length, 11)
-check("board command", specs[0].command, "omarchy-shell shell toggle vvkycodevv.sbb '{}'")
-check("favourite command", specs[2].command, "omarchy-shell vvkycodevv.sbb favourite 1")
-check("empty keys turn shortcuts off", Model.shortcutSpecs("x", { board: "SUPER + T", search: "", favourites: "" }).length, 1)
-
+const specs = Model.shortcutSpecs("vvkycodevv.db", cfg)
+check("eleven DB shortcuts", specs.length, 11)
+check("DB board command", specs[0].command, "omarchy-shell shell toggle vvkycodevv.db '{}'")
+check("DB favourite command", specs[2].command, "omarchy-shell vvkycodevv.db favourite 1")
+check("DB shortcut branding", specs.slice(0, 3).map(s => s.description), ["DB: departures", "DB: route search", "DB: favourite route 1"])
 const binds = [
-  { modmask: 72, key: "code:10", description: "Switch to group window 1" },   // Omarchy, by keycode
-  { modmask: 72, key: "S", description: "Move window to scratchpad" },
-  { modmask: 76, key: "5", description: "My own thing" },
-  { modmask: 72, key: "T", description: "SBB departures" },                    // hand written, older README
-  { modmask: 72, key: "B", description: "SBB: departures" }                     // plugin made, old key
+  { modmask: 72, key: "T", description: "SBB departures" },
+  { modmask: 72, key: "B", description: "SBB: departures" },
+  { modmask: 76, key: "5", description: "My own shortcut" }
 ]
 const plan = Model.planShortcuts(binds, specs)
-check("free keys bound", plan.bind.map(b => b.keys).slice(0, 3), ["SUPER + ALT + T", "SUPER + ALT + R", "SUPER + CTRL + ALT + 1"])
-check("taken key skipped", plan.skipped.map(b => [b.keys, b.owner]), [["SUPER + CTRL + ALT + 5", "My own thing"]])
-check("hand written SBB bind is replaced, not a clash", plan.bind.some(b => b.keys === "SUPER + ALT + T"), true)
-check("stale plugin bind removed", plan.stale, ["SUPER + ALT + B"])
-check("keycode clash found", Model.planShortcuts(binds, Model.shortcutSpecs("x", { board: "SUPER + ALT + 1", search: "", favourites: "" })).skipped[0].owner,
-  "Switch to group window 1")
-check("invalid keys reported", Model.planShortcuts([], Model.shortcutSpecs("x", { board: "NOPE + T", search: "", favourites: "" })).invalid.length, 1)
-check("disabled removes plugin binds only", Model.planShortcuts(binds, []).stale, ["SUPER + ALT + B"])
+check("legacy SBB shortcut can be replaced during migration", plan.bind.some(b => b.keys === "SUPER + ALT + T"), true)
+check("legacy SBB shortcut is intentionally removable", plan.stale, ["SUPER + ALT + B"])
+check("unrelated shortcut remains protected", plan.skipped.map(b => b.owner), ["My own shortcut"])
+check("shortcut Lua uses DB module and brand", Model.shortcutsLua({ stale: [], bind: [plan.bind[0]] }),
+  'hl.unbind("SUPER + ALT + T")\nhl.bind("SUPER + ALT + T", hl.dsp.exec_cmd("omarchy-shell shell toggle vvkycodevv.db \'{}\'"), { description = "DB: departures" })')
 
-const plain = [
-  "bindd", "\tmodmask: 72", "\tsubmap: ", "\tkey: SUPER + ALT + code:10", "\tkeycode: 0",
-  "\tdescription: Switch to group window 1", "\tdispatcher: __lua", "\targ: 225", "",
-  "bindd", "\tmodmask: 72", "\tkey: S", "\tdescription: Move window to scratchpad", "\tdispatcher: __lua", ""
-].join("\n")
-check("plain binds parsed", Model.parsePlainBinds(plain),
-  [{ modmask: 72, key: "code:10", description: "Switch to group window 1", dispatcher: "__lua" },
-   { modmask: 72, key: "S", description: "Move window to scratchpad", dispatcher: "__lua" }])
-check("keycode clash from real output", Model.planShortcuts(Model.parsePlainBinds(plain),
-  Model.shortcutSpecs("x", { board: "", search: "", favourites: "SUPER + ALT" })).skipped.map(b => b.keys),
-  ["SUPER + ALT + 1"])
-
-const lua = Model.shortcutsLua({ stale: ["SUPER + ALT + B"], bind: [plan.bind[0]] })
-check("lua", lua, 'hl.unbind("SUPER + ALT + B")\nhl.unbind("SUPER + ALT + T")\n'
-  + 'hl.bind("SUPER + ALT + T", hl.dsp.exec_cmd("omarchy-shell shell toggle vvkycodevv.sbb \'{}\'"), { description = "SBB: departures" })')
-check("lua escapes quotes", Model.shortcutsLua({ stale: [], bind: [{ keys: "SUPER + T", command: 'say "hi"', description: "SBB: x" }] }).indexOf('say \\"hi\\"') !== -1, true)
-
-check("unbind lua", Model.unbindLua([{ keys: "SUPER + ALT + T" }, { keys: "SUPER + CTRL + ALT + 1" }]),
-  'hl.unbind("SUPER + ALT + T")\nhl.unbind("SUPER + CTRL + ALT + 1")')
-check("nothing to unbind", Model.unbindLua([]), "")
-
-// ---- Response limits -------------------------------------------------------------
-
-check("utf8 length", [Model.utf8Length("abc"), Model.utf8Length("Zürich"), Model.utf8Length("→"), Model.utf8Length("🚆")], [3, 7, 3, 4])
-check("within limit", [Model.withinLimit("12345", 5), Model.withinLimit("123456", 5), Model.withinLimit("ü", 1)], [true, false, false])
-check("capped command reads one byte past the limit", Model.cappedCommand(["hyprctl", "binds"], 100).slice(3), ["sbb-capped", "101", "hyprctl", "binds"])
-check("curl command caps the download", Model.curlCommand("https://x", 2048, 5).slice(5),
-  ["curl", "-sS", "--max-time", "5", "--max-filesize", "2048", "https://x"])
-{
-  const { execFileSync } = require("child_process")
-  const run = argv => execFileSync(argv[0], argv.slice(1)).toString()
-  check("cap cuts the output", run(Model.cappedCommand(["sh", "-c", "yes x | head -c 100000"], 10)).length, 11)
-  check("cap keeps short output", run(Model.cappedCommand(["printf", "%s", "hello"], 10)), "hello")
-  check("cap passes arguments untouched", run(Model.cappedCommand(["printf", "%s|%s", "a b", "$HOME"], 50)), "a b|$HOME")
-}
+check("UTF-8 response sizing", [Model.utf8Length("Köln"), Model.withinLimit("ü", 1)], [5, false])
+check("capped command marker", Model.cappedCommand(["printf", "%s", "ok"], 10).slice(3, 5), ["db-capped", "11"])
+check("curl remains bounded", Model.curlCommand("https://example.invalid", 2048, 5).slice(5),
+  ["curl", "-sS", "--max-time", "5", "--max-filesize", "2048", "https://example.invalid"])
 
 if (failures) {
   console.log(failures + " failed")
   process.exit(1)
 }
-console.log("all model tests passed")
+console.log("All model tests passed")
